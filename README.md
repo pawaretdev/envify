@@ -2,6 +2,11 @@
 
 Instantly convert between `.env` and `JSON` formats — bidirectional, fast, and simple.
 
+## Support Further Development
+
+[![GitHub Sponsors](https://img.shields.io/badge/-pawaretdev-black?style=for-the-badge&logo=githubsponsors&label=GitHub%20Sponsor%3A)](https://github.com/sponsors/pawaretdev)\
+[![Buy Me a Coffee](https://img.shields.io/badge/-pawaretdev-black?style=for-the-badge&logo=buymeacoffee&label=Buy%20Me%20a%20Coffee%3A)](https://buymeacoffee.com/pawaretdev)
+
 ## Features
 
 - **`.env` → `JSON`** — Convert environment variable files to JSON
@@ -84,6 +89,16 @@ APP_NAME="My App"
 - Handles escape sequences (`\n`, `\t`, `\\`, `\"`)
 - Skips comments and empty lines in .env files
 - Nested JSON objects are stringified when converting to .env
+
+## Privacy & Security
+
+Envify works **100% offline**. Your `.env` secrets never leave your machine.
+
+- No network requests — no data is sent to any server
+- No telemetry or analytics
+- No file system access — conversion happens entirely in the editor
+- Zero runtime dependencies — no third-party code runs behind the scenes
+- Source code is open and auditable on [GitHub](https://github.com/pawaretdev/envify)
 
 ## License
 
