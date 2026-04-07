@@ -1,0 +1,110 @@
+{
+  "name": "envify",
+  "displayName": "Envify",
+  "description": "Instantly convert between .env and JSON formats — bidirectional, fast, and simple.",
+  "version": "1.1.1",
+  "publisher": "pawaretdev",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Formatters",
+    "Other"
+  ],
+  "keywords": [
+    "env",
+    "json",
+    "convert",
+    "dotenv",
+    "environment",
+    "variables",
+    "transformer",
+    "envify"
+  ],
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maxion-central/envify"
+  },
+  "license": "MIT",
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "envify.envToJson",
+        "title": "Convert .env to JSON",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.jsonToEnv",
+        "title": "Convert JSON to .env",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.envToJsonNewFile",
+        "title": "Convert .env to JSON (New File)",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.jsonToEnvNewFile",
+        "title": "Convert JSON to .env (New File)",
+        "category": "Envify"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceExtname == .env || resourceFilename =~ /^\\.env/",
+          "command": "envify.envToJson",
+          "group": "envify@1"
+        },
+        {
+          "when": "resourceExtname == .env || resourceFilename =~ /^\\.env/",
+          "command": "envify.envToJsonNewFile",
+          "group": "envify@2"
+        },
+        {
+          "when": "resourceExtname == .json",
+          "command": "envify.jsonToEnv",
+          "group": "envify@1"
+        },
+        {
+          "when": "resourceExtname == .json",
+          "command": "envify.jsonToEnvNewFile",
+          "group": "envify@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "envify.envToJson",
+        "key": "ctrl+shift+j",
+        "mac": "cmd+shift+j",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "envify.jsonToEnv",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "tsc -p ./ && node out/converter.test.js",
+    "package": "vsce package",
+    "publish:vscode": "vsce publish",
+    "publish:ovsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0",
+    "ovsx": "^0.8.0"
+  }
+}
