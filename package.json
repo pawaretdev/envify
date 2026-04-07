@@ -2,7 +2,7 @@
   "name": "envify",
   "displayName": "Envify",
   "description": "Instantly convert between .env and JSON formats — bidirectional, fast, and simple.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "pawaretdev",
   "engines": {
     "vscode": "^1.80.0"

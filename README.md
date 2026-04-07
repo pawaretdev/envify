@@ -7,7 +7,8 @@ Instantly convert between `.env` and `JSON` formats — bidirectional, fast, and
 - **`.env` → `JSON`** — Convert environment variable files to JSON
 - **`JSON` → `.env`** — Convert JSON files to .env format
 - **In-place conversion** — Replace content in the current editor
-- **New file creation** — Save conversion result as a new file
+- **Selection support** — Select specific lines to convert only the selection
+- **New tab output** — Open conversion result in a new untitled tab
 - **Right-click menu** — Context menu support for quick access
 - **Keyboard shortcuts** — Fast conversion with hotkeys
 
@@ -21,8 +22,8 @@ Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) and search for:
 |---------|-------------|
 | `Envify: Convert .env to JSON` | Replace current content with JSON |
 | `Envify: Convert JSON to .env` | Replace current content with .env |
-| `Envify: Convert .env to JSON (New File)` | Create a new .json file |
-| `Envify: Convert JSON to .env (New File)` | Create a new .env file |
+| `Envify: Convert .env to JSON (New File)` | Open JSON result in a new tab |
+| `Envify: Convert JSON to .env (New File)` | Open .env result in a new tab |
 
 ### Keyboard Shortcuts
 
