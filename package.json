@@ -2,7 +2,7 @@
   "name": "envify",
   "displayName": "Envify",
   "description": "Instantly convert between .env and JSON formats — bidirectional, fast, and simple.",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "publisher": "pawaretdev",
   "engines": {
     "vscode": "^1.80.0"
@@ -24,7 +24,7 @@
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/maxion-central/envify"
+    "url": "https://github.com/pawaretdev/envify"
   },
   "license": "MIT",
   "activationEvents": [],
