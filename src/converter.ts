@@ -70,6 +70,50 @@ export function envToJson(content: string, options: ConvertOptions = {}): string
 }
 
 /**
+ * Format .env content: trim whitespace around =, trim trailing whitespace,
+ * collapse consecutive blank lines, ensure trailing newline
+ */
+export function formatEnv(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const result: string[] = [];
+  let prevWasBlank = false;
+
+  for (const line of lines) {
+    const trimmed = line.trimEnd();
+
+    if (trimmed === '') {
+      if (!prevWasBlank) {
+        result.push('');
+      }
+      prevWasBlank = true;
+      continue;
+    }
+
+    prevWasBlank = false;
+
+    // Trim whitespace around = for key=value lines (not comments)
+    if (!trimmed.startsWith('#')) {
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex > 0) {
+        const key = trimmed.slice(0, eqIndex).trimEnd();
+        const value = trimmed.slice(eqIndex + 1).trimStart();
+        result.push(`${key}=${value}`);
+        continue;
+      }
+    }
+
+    result.push(trimmed);
+  }
+
+  // Remove trailing blank lines, then add exactly one newline at end
+  while (result.length > 0 && result[result.length - 1] === '') {
+    result.pop();
+  }
+
+  return result.join('\n') + '\n';
+}
+
+/**
  * Convert JSON string to .env content string
  */
 export function jsonToEnv(content: string): string {

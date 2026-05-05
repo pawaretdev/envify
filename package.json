@@ -2,7 +2,7 @@
   "name": "envify",
   "displayName": "Envify",
   "description": "Instantly convert between .env and JSON formats — bidirectional, fast, and simple.",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "publisher": "pawaretdev",
   "engines": {
     "vscode": "^1.80.0"
@@ -55,24 +55,20 @@
     "menus": {
       "editor/context": [
         {
-          "when": "resourceExtname == .env || resourceFilename =~ /^\\.env/",
           "command": "envify.envToJson",
           "group": "envify@1"
         },
         {
-          "when": "resourceExtname == .env || resourceFilename =~ /^\\.env/",
           "command": "envify.envToJsonNewFile",
           "group": "envify@2"
         },
         {
-          "when": "resourceExtname == .json",
           "command": "envify.jsonToEnv",
-          "group": "envify@1"
+          "group": "envify@3"
         },
         {
-          "when": "resourceExtname == .json",
           "command": "envify.jsonToEnvNewFile",
-          "group": "envify@2"
+          "group": "envify@4"
         }
       ]
     },

@@ -11,10 +11,11 @@ Instantly convert between `.env` and `JSON` formats — bidirectional, fast, and
 
 - **`.env` → `JSON`** — Convert environment variable files to JSON
 - **`JSON` → `.env`** — Convert JSON files to .env format
+- **Format Document** — Clean up `.env` files with `Shift+Alt+F` (trims whitespace, removes duplicate blank lines)
 - **In-place conversion** — Replace content in the current editor
 - **Selection support** — Select specific lines to convert only the selection
 - **New tab output** — Open conversion result in a new untitled tab
-- **Right-click menu** — Context menu support for quick access
+- **Right-click menu** — Context menu shows all commands for easy back-and-forth conversion
 - **Keyboard shortcuts** — Fast conversion with hotkeys
 
 ## Usage
@@ -37,9 +38,18 @@ Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) and search for:
 | `Ctrl+Shift+J` / `Cmd+Shift+J` | Convert .env → JSON |
 | `Ctrl+Alt+E` / `Cmd+Alt+E` | Convert JSON → .env |
 
+### Format Document
+
+Press `Shift+Alt+F` (Mac: `Shift+Option+F`) while editing a `.env` file to auto-format:
+
+- Trims whitespace around `=` — `KEY = value` → `KEY=value`
+- Removes trailing whitespace on each line
+- Collapses consecutive blank lines into one
+- Ensures a trailing newline at end of file
+
 ### Right-Click Menu
 
-Right-click in the editor to see Envify commands in the context menu. Commands appear based on the file type you're editing.
+Right-click in the editor to see all Envify commands in the context menu.
 
 ## Examples
 
