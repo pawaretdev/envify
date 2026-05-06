@@ -108,32 +108,26 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  const envFormatter = vscode.languages.registerDocumentFormattingEditProvider(
-    [
-      { language: 'dotenv' },
-      { language: 'env' },
-      { language: 'properties' },
-      { scheme: 'file', pattern: '**/.env' },
-      { scheme: 'file', pattern: '**/.env.*' },
-      { scheme: 'file', pattern: '**/*.env' },
-    ],
-    {
-      provideDocumentFormattingEdits(document: vscode.TextDocument): vscode.TextEdit[] {
-        const text = document.getText();
-        const formatted = formatEnv(text);
-        if (formatted === text) {
-          return [];
-        }
-        const fullRange = new vscode.Range(
-          document.positionAt(0),
-          document.positionAt(text.length)
-        );
-        return [vscode.TextEdit.replace(fullRange, formatted)];
-      },
+  const formatEnvCmd = vscode.commands.registerCommand('envify.formatDocument', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
     }
-  );
+    const text = editor.document.getText();
+    const formatted = formatEnv(text);
+    if (formatted === text) {
+      return;
+    }
+    const fullRange = new vscode.Range(
+      editor.document.positionAt(0),
+      editor.document.positionAt(text.length)
+    );
+    await editor.edit((editBuilder) => {
+      editBuilder.replace(fullRange, formatted);
+    });
+  });
 
-  context.subscriptions.push(envToJsonCmd, jsonToEnvCmd, envToJsonNewFileCmd, jsonToEnvNewFileCmd, envFormatter);
+  context.subscriptions.push(envToJsonCmd, jsonToEnvCmd, envToJsonNewFileCmd, jsonToEnvNewFileCmd, formatEnvCmd);
 }
 
 export function deactivate() {}

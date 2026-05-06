@@ -1,8 +1,12 @@
 # Changelog
 
+## 1.3.1
+
+- Fix `.env` formatter compatibility with editors that override language detection (e.g. Cursor) — now implemented as a dedicated command instead of the formatter API
+
 ## 1.3.0
 
-- Format Document (`Shift+Alt+F`) support for `.env` files — trims whitespace around `=`, removes trailing spaces, collapses consecutive blank lines, ensures trailing newline
+- Format .env Document (`Shift+Alt+F`) — trims whitespace around `=`, removes trailing spaces, collapses consecutive blank lines, ensures trailing newline
 - Context menu now shows all commands regardless of file type for easy back-and-forth conversion
 
 ## 1.2.0
