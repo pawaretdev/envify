@@ -1,24 +1,29 @@
 {
   "name": "envify",
   "displayName": "Envify",
-  "description": "Instantly convert between .env and JSON formats — bidirectional, fast, and simple.",
-  "version": "1.3.1",
+  "description": "Convert .env to JSON, YAML, shell, docker-compose and Kubernetes — plus .env syntax highlighting, linting, .env.example sync and formatting.",
+  "version": "1.4.0",
   "publisher": "pawaretdev",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
+    "Programming Languages",
     "Formatters",
+    "Linters",
     "Other"
   ],
   "keywords": [
     "env",
-    "json",
-    "convert",
     "dotenv",
+    "json",
+    "yaml",
+    "convert",
     "environment",
     "variables",
-    "transformer",
+    "env.example",
+    "docker-compose",
+    "kubernetes",
     "envify"
   ],
   "icon": "images/icon.png",
@@ -27,9 +32,36 @@
     "url": "https://github.com/pawaretdev/envify"
   },
   "license": "MIT",
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:dotenv",
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "dotenv",
+        "aliases": [
+          "dotenv",
+          ".env"
+        ],
+        "filenames": [
+          ".env"
+        ],
+        "filenamePatterns": [
+          ".env.*",
+          "*.env"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dotenv",
+        "scopeName": "source.dotenv",
+        "path": "./syntaxes/dotenv.tmLanguage.json"
+      }
+    ],
     "commands": [
       {
         "command": "envify.envToJson",
@@ -52,32 +84,101 @@
         "category": "Envify"
       },
       {
+        "command": "envify.envToFormat",
+        "title": "Convert .env to… (YAML, Shell, docker-compose, Kubernetes)",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.copyAsJson",
+        "title": "Copy .env as JSON",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.copyAsEnv",
+        "title": "Copy JSON as .env",
+        "category": "Envify"
+      },
+      {
         "command": "envify.formatDocument",
         "title": "Format .env Document",
         "category": "Envify"
+      },
+      {
+        "command": "envify.generateExample",
+        "title": "Generate .env.example",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.compareWithExample",
+        "title": "Compare with .env.example",
+        "category": "Envify"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "envify.editorSubmenu",
+        "label": "Envify"
       }
     ],
     "menus": {
       "editor/context": [
         {
+          "submenu": "envify.editorSubmenu",
+          "group": "envify"
+        }
+      ],
+      "envify.editorSubmenu": [
+        {
           "command": "envify.envToJson",
-          "group": "envify@1"
+          "group": "1_convert@1"
         },
         {
           "command": "envify.envToJsonNewFile",
-          "group": "envify@2"
+          "group": "1_convert@2"
         },
         {
           "command": "envify.jsonToEnv",
-          "group": "envify@3"
+          "group": "1_convert@3"
         },
         {
           "command": "envify.jsonToEnvNewFile",
-          "group": "envify@4"
+          "group": "1_convert@4"
+        },
+        {
+          "command": "envify.envToFormat",
+          "group": "1_convert@5"
+        },
+        {
+          "command": "envify.copyAsJson",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "envify.copyAsEnv",
+          "group": "2_copy@2"
+        },
+        {
+          "command": "envify.generateExample",
+          "group": "3_example@1"
+        },
+        {
+          "command": "envify.compareWithExample",
+          "group": "3_example@2"
         },
         {
           "command": "envify.formatDocument",
-          "group": "envify@5"
+          "group": "4_format@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "envify.generateExample",
+          "group": "envify@1",
+          "when": "resourceFilename =~ /\\.env/"
+        },
+        {
+          "command": "envify.compareWithExample",
+          "group": "envify@2",
+          "when": "resourceFilename =~ /\\.env/"
         }
       ]
     },
@@ -98,9 +199,84 @@
         "command": "envify.formatDocument",
         "key": "shift+alt+f",
         "mac": "shift+alt+f",
-        "when": "editorTextFocus && resourceFilename =~ /\\.env/"
+        "when": "editorTextFocus && (editorLangId == dotenv || resourceFilename =~ /\\.env/)"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Envify",
+      "properties": {
+        "envify.json.indent": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 8,
+          "description": "Indent size for JSON output."
+        },
+        "envify.json.inferTypes": {
+          "type": "boolean",
+          "default": false,
+          "description": "When converting .env to JSON, turn unquoted true/false/null and numbers into native JSON types. Quoted values always stay strings."
+        },
+        "envify.json.sortKeys": {
+          "type": "boolean",
+          "default": false,
+          "description": "Sort keys alphabetically when converting .env to JSON."
+        },
+        "envify.env.quoteStyle": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always"
+          ],
+          "enumDescriptions": [
+            "Quote only values that need it (spaces, #, quotes, newlines, empty).",
+            "Wrap every value in double quotes."
+          ],
+          "default": "auto",
+          "description": "Quoting style when converting JSON to .env."
+        },
+        "envify.env.sortKeys": {
+          "type": "boolean",
+          "default": false,
+          "description": "Sort keys alphabetically when converting JSON to .env."
+        },
+        "envify.nestedSeparator": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Separator for nested keys, e.g. `__` turns `DB__HOST=x` into `{\"DB\":{\"HOST\":\"x\"}}` and flattens nested JSON back to `DB__HOST`. Leave empty to keep keys flat and stringify nested objects."
+        },
+        "envify.expandVariables": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Resolve `${VAR}`, `$VAR` and `${VAR:-default}` references using other keys in the same file when converting. Single-quoted values are never expanded."
+        },
+        "envify.example.fileName": {
+          "type": "string",
+          "default": ".env.example",
+          "description": "File name used by Generate / Compare .env.example, resolved next to the .env file."
+        },
+        "envify.example.placeholder": {
+          "type": "string",
+          "default": "",
+          "description": "Text placed after = for every key in a generated .env.example."
+        },
+        "envify.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show problems in .env files (invalid lines, duplicate keys, unquoted values with spaces, unclosed quotes, undefined references)."
+        },
+        "envify.diagnostics.compareWithExample": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a .env file is missing keys that exist in its sibling .env.example."
+        },
+        "envify.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification after each successful conversion."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "dotenv",
+  "scopeName": "source.dotenv",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#entry" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "^\\s*(#.*)$",
+      "captures": {
+        "1": { "name": "comment.line.number-sign.dotenv" }
+      }
+    },
+    "entry": {
+      "begin": "^\\s*(?:(export)\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s*(=)\\s*",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.export.dotenv" },
+        "2": { "name": "variable.other.env.dotenv" },
+        "3": { "name": "keyword.operator.assignment.dotenv" }
+      },
+      "end": "$",
+      "patterns": [
+        { "include": "#double-quoted" },
+        { "include": "#single-quoted" },
+        { "include": "#inline-comment" },
+        { "include": "#interpolation" },
+        { "include": "#unquoted" }
+      ]
+    },
+    "double-quoted": {
+      "name": "string.quoted.double.dotenv",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.dotenv", "match": "\\\\." },
+        { "include": "#interpolation" }
+      ]
+    },
+    "single-quoted": {
+      "name": "string.quoted.single.dotenv",
+      "begin": "'",
+      "end": "'"
+    },
+    "inline-comment": {
+      "name": "comment.line.number-sign.dotenv",
+      "match": "(?<=\\s|^)#.*$"
+    },
+    "interpolation": {
+      "name": "variable.other.interpolation.dotenv",
+      "match": "\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::?-[^}]*)?\\}|\\$[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "unquoted": {
+      "name": "string.unquoted.dotenv",
+      "match": "[^\\s#$\"']+"
+    }
+  }
+}

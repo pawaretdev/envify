@@ -8,3 +8,5 @@ node_modules/**
 **/*.map
 **/*.test.js
 package-lock.json
+*.local.md
+CLAUDE.md
