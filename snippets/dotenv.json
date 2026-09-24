@@ -1,0 +1,12 @@
+{
+  "Env block": {
+    "prefix": "env-block",
+    "description": "Commented group of keys sharing a prefix",
+    "body": [
+      "# ${1:Database}",
+      "${2:DB}_${3:HOST}=$4",
+      "${2:DB}_${5:PORT}=$6",
+      "$0"
+    ]
+  }
+}

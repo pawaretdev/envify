@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.5.0
+
+### Compare .env files
+- `Envify: Compare .env Files…` — pick another env file from the same folder (or browse) and see both side by side in a diff; keys are sorted and values quoted the same way, so only real differences show up
+- In the Explorer, select two files and right-click → **Compare .env Files…** to skip the picker
+- A summary lists keys found in only one file and keys with different values, with actions to add the missing keys (empty values) to either file
+- The diff updates live while you edit either file
+
+### .env.example
+- Code lens on the first line of a `.env` file that is missing keys: `3 keys missing from .env.example | Add` — click the count for details, **Add** to append them (`envify.codeLens.enabled`)
+
+### Autocomplete
+- Typing `${` in a value suggests the keys defined in the same file; `Ctrl+Space` after `$` does the same for `$VAR`
+- Suggestions show key names and line numbers only, never values, so secrets do not pop up while typing
+- No suggestions in keys, comments, single-quoted values (never expanded) or after an escaped `\$`
+
+### Snippets
+- `env-block` — a commented group of keys sharing a prefix
+
+### Fixes
+- Compare with .env.example no longer misses keys named after built-in object members such as `constructor` or `toString`
+
 ## 1.4.0
 
 ### Parser fixes

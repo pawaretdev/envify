@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   compareEnv,
   createResolver,
+  diffEnv,
   envToDockerCompose,
   envToExample,
   envToJson,
@@ -12,7 +13,9 @@ import {
   formatEnv,
   jsonToEnv,
   lintEnv,
+  normalizeEnv,
   parseEnvDocument,
+  referenceCompletionAt,
   EnvIssue,
   EnvOutputFormat,
   EnvToJsonOptions,
@@ -23,6 +26,7 @@ import {
 const DOTENV_LANGUAGE = 'dotenv';
 const DIAGNOSTIC_SOURCE = 'envify';
 const ENV_FILENAME_PATTERN = /(^|[\\/])(\.env(\..*)?|.*\.env)$/;
+const NORMALIZED_SCHEME = 'envify-normalized';
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -36,6 +40,7 @@ interface EnvifyConfig {
   examplePlaceholder: string;
   diagnosticsEnabled: boolean;
   compareWithExample: boolean;
+  codeLensEnabled: boolean;
   showNotifications: boolean;
 }
 
@@ -61,6 +66,7 @@ function getConfig(scope?: vscode.ConfigurationScope): EnvifyConfig {
     examplePlaceholder: cfg.get<string>('example.placeholder', ''),
     diagnosticsEnabled: cfg.get<boolean>('diagnostics.enabled', true),
     compareWithExample: cfg.get<boolean>('diagnostics.compareWithExample', true),
+    codeLensEnabled: cfg.get<boolean>('codeLens.enabled', true),
     showNotifications: cfg.get<boolean>('showNotifications', true),
   };
 }
@@ -81,7 +87,7 @@ function fail(err: unknown): void {
 // ---------------------------------------------------------------------------
 
 function isEnvDocument(doc: vscode.TextDocument): boolean {
-  if (doc.uri.scheme === 'output' || doc.uri.scheme === 'git') {
+  if (doc.uri.scheme === 'output' || doc.uri.scheme === 'git' || doc.uri.scheme === NORMALIZED_SCHEME) {
     return false;
   }
   return doc.languageId === DOTENV_LANGUAGE || ENV_FILENAME_PATTERN.test(doc.uri.path);
@@ -390,6 +396,12 @@ function appendKeysEdit(doc: vscode.TextDocument, keys: string[], placeholder: s
   return vscode.TextEdit.insert(doc.positionAt(text.length), prefix + lines);
 }
 
+async function appendKeys(doc: vscode.TextDocument, keys: string[], placeholder: string): Promise<void> {
+  const edit = new vscode.WorkspaceEdit();
+  edit.set(doc.uri, [appendKeysEdit(doc, keys, placeholder)]);
+  await vscode.workspace.applyEdit(edit);
+}
+
 async function compareWithExample(uri?: vscode.Uri): Promise<void> {
   const doc = await resolveDocument(uri);
   if (!doc) {
@@ -435,12 +447,187 @@ async function compareWithExample(uri?: vscode.Uri): Promise<void> {
 
   const choice = await vscode.window.showWarningMessage(`Envify: ${parts.join(' · ')}`, ...actions);
   if (choice === 'Add missing keys') {
-    const edit = new vscode.WorkspaceEdit();
-    edit.set(doc.uri, [appendKeysEdit(doc, result.missing, config.examplePlaceholder)]);
-    await vscode.workspace.applyEdit(edit);
+    await appendKeys(doc, result.missing, config.examplePlaceholder);
     await vscode.window.showTextDocument(doc);
   } else if (choice) {
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(exampleUri));
+  }
+}
+
+/** Code lens target: append the keys the document is missing from its `.env.example`, computed afresh. */
+async function addMissingKeys(uri?: vscode.Uri): Promise<void> {
+  const doc = await resolveDocument(uri);
+  if (!doc) {
+    return;
+  }
+  const config = getConfig(doc);
+  const exampleText = await readFileText(siblingUri(doc.uri, config.exampleFileName));
+  if (exampleText === undefined) {
+    return;
+  }
+  const { missing } = compareEnv(doc.getText(), exampleText);
+  if (missing.length) {
+    await appendKeys(doc, missing, config.examplePlaceholder);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compare .env files
+// ---------------------------------------------------------------------------
+
+/** Read-only, sorted view of an env file, shown on both sides of the compare diff. */
+class NormalizedEnvProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
+  private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
+  private readonly sources = new Set<string>();
+  readonly onDidChange = this.emitter.event;
+
+  uriFor(source: vscode.Uri): vscode.Uri {
+    this.sources.add(source.toString());
+    // Keep the source path so the tab shows the file name and gets dotenv highlighting.
+    return vscode.Uri.from({ scheme: NORMALIZED_SCHEME, path: source.path, query: source.toString() });
+  }
+
+  async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uri.query));
+    return normalizeEnv(doc.getText(), { expandVariables: getConfig(doc).expandVariables });
+  }
+
+  /** Refresh an open diff while its source file is edited. */
+  sourceChanged(doc: vscode.TextDocument): void {
+    if (this.sources.has(doc.uri.toString())) {
+      this.emitter.fire(this.uriFor(doc.uri));
+    }
+  }
+
+  dispose(): void {
+    this.emitter.dispose();
+  }
+}
+
+interface FileChoice extends vscode.QuickPickItem {
+  uri?: vscode.Uri;
+}
+
+/** Ask for the file to compare against: env files next to `source`, or any file via a dialog. */
+async function pickEnvFile(source: vscode.Uri): Promise<vscode.Uri | undefined> {
+  const folder = source.scheme === 'untitled' ? undefined : vscode.Uri.joinPath(source, '..');
+  const choices: FileChoice[] = [];
+  if (folder) {
+    try {
+      for (const [name, type] of await vscode.workspace.fs.readDirectory(folder)) {
+        if (type & vscode.FileType.File && ENV_FILENAME_PATTERN.test(name) && name !== basename(source)) {
+          choices.push({ label: name, uri: vscode.Uri.joinPath(folder, name) });
+        }
+      }
+    } catch {
+      // Folder not listable (e.g. a virtual document): only browsing is possible.
+    }
+  }
+  choices.sort((a, b) => a.label.localeCompare(b.label));
+  choices.push({ label: '$(folder-opened) Browse…', description: 'Pick any file', alwaysShow: true });
+
+  const choice = await vscode.window.showQuickPick(choices, { placeHolder: `Compare ${basename(source)} with…` });
+  if (!choice) {
+    return undefined;
+  }
+  if (choice.uri) {
+    return choice.uri;
+  }
+  const picked = await vscode.window.showOpenDialog({
+    canSelectMany: false,
+    defaultUri: folder,
+    openLabel: 'Compare',
+  });
+  return picked?.[0];
+}
+
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
+
+async function compareEnvFiles(
+  provider: NormalizedEnvProvider,
+  uri?: vscode.Uri,
+  selected?: vscode.Uri[]
+): Promise<void> {
+  let left: vscode.Uri | undefined;
+  let right: vscode.Uri | undefined;
+
+  if (Array.isArray(selected) && selected.length > 1) {
+    if (selected.length > 2) {
+      vscode.window.showWarningMessage('Envify: Select exactly two files to compare.');
+      return;
+    }
+    [left, right] = selected;
+  } else {
+    left = uri instanceof vscode.Uri ? uri : requireEditor()?.document.uri;
+    if (!left) {
+      return;
+    }
+    right = await pickEnvFile(left);
+  }
+  if (!right) {
+    return;
+  }
+  if (left.toString() === right.toString()) {
+    vscode.window.showWarningMessage('Envify: Pick two different files to compare.');
+    return;
+  }
+
+  try {
+    const [leftDoc, rightDoc] = await Promise.all([
+      vscode.workspace.openTextDocument(left),
+      vscode.workspace.openTextDocument(right),
+    ]);
+    const sameName = basename(left) === basename(right);
+    const leftName = sameName ? vscode.workspace.asRelativePath(left) : basename(left);
+    const rightName = sameName ? vscode.workspace.asRelativePath(right) : basename(right);
+
+    const diff = diffEnv(leftDoc.getText(), rightDoc.getText(), {
+      expandVariables: getConfig(leftDoc).expandVariables,
+    });
+    if (diff.onlyLeft.length === 0 && diff.onlyRight.length === 0 && diff.changed.length === 0) {
+      vscode.window.showInformationMessage(
+        `Envify: ${leftName} and ${rightName} have the same ${plural(diff.same.length, 'key')} and values.`
+      );
+      return;
+    }
+
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      provider.uriFor(left),
+      provider.uriFor(right),
+      `${leftName} ↔ ${rightName} (Envify)`
+    );
+
+    const parts: string[] = [];
+    if (diff.onlyLeft.length) {
+      parts.push(`only in ${leftName}: ${diff.onlyLeft.join(', ')}`);
+    }
+    if (diff.onlyRight.length) {
+      parts.push(`only in ${rightName}: ${diff.onlyRight.join(', ')}`);
+    }
+    if (diff.changed.length) {
+      parts.push(`different values: ${diff.changed.join(', ')}`);
+    }
+
+    // Missing keys are added with empty values: values usually differ per environment.
+    const additions = new Map<string, { doc: vscode.TextDocument; keys: string[] }>();
+    if (diff.onlyLeft.length) {
+      additions.set(`Add ${plural(diff.onlyLeft.length, 'key')} to ${rightName}`, { doc: rightDoc, keys: diff.onlyLeft });
+    }
+    if (diff.onlyRight.length) {
+      additions.set(`Add ${plural(diff.onlyRight.length, 'key')} to ${leftName}`, { doc: leftDoc, keys: diff.onlyRight });
+    }
+
+    const choice = await vscode.window.showInformationMessage(`Envify: ${parts.join(' · ')}`, ...additions.keys());
+    const addition = choice ? additions.get(choice) : undefined;
+    if (addition) {
+      await appendKeys(addition.doc, addition.keys, '');
+      await vscode.window.showTextDocument(addition.doc);
+    }
+  } catch (err) {
+    fail(err);
   }
 }
 
@@ -460,8 +647,11 @@ const SEVERITY: Record<EnvIssue['severity'], vscode.DiagnosticSeverity> = {
 class EnvDiagnostics implements vscode.Disposable {
   private readonly collection = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
   private readonly timers = new Map<string, NodeJS.Timeout>();
-  /** Missing keys per document, consumed by the "Add missing keys" code action. */
+  private readonly refreshed = new vscode.EventEmitter<void>();
+  /** Missing keys per document, consumed by the "Add missing keys" code action and code lens. */
   readonly missingKeys = new Map<string, string[]>();
+  /** Fires whenever diagnostics (and `missingKeys`) of any document change. */
+  readonly onDidRefresh = this.refreshed.event;
 
   schedule(doc: vscode.TextDocument, delay = 300): void {
     const key = doc.uri.toString();
@@ -492,27 +682,31 @@ class EnvDiagnostics implements vscode.Disposable {
     const text = doc.getText();
     const diagnostics = lintEnv(text).map((issue) => this.toDiagnostic(doc, issue));
 
+    let missing: string[] = [];
     if (config.compareWithExample && !isExampleDocument(doc) && !doc.isUntitled) {
       const exampleText = await readFileText(siblingUri(doc.uri, config.exampleFileName));
       if (exampleText !== undefined) {
-        const { missing } = compareEnv(text, exampleText);
-        if (missing.length) {
-          this.missingKeys.set(doc.uri.toString(), missing);
-          const diag = new vscode.Diagnostic(
-            doc.lineAt(0).range,
-            `Missing keys from ${config.exampleFileName}: ${missing.join(', ')}`,
-            vscode.DiagnosticSeverity.Warning
-          );
-          diag.source = DIAGNOSTIC_SOURCE;
-          diag.code = MISSING_KEYS_CODE;
-          diagnostics.push(diag);
-        } else {
-          this.missingKeys.delete(doc.uri.toString());
-        }
+        missing = compareEnv(text, exampleText).missing;
       }
     }
 
+    if (missing.length) {
+      this.missingKeys.set(doc.uri.toString(), missing);
+      const diag = new vscode.Diagnostic(
+        doc.lineAt(0).range,
+        `Missing keys from ${config.exampleFileName}: ${missing.join(', ')}`,
+        vscode.DiagnosticSeverity.Warning
+      );
+      diag.source = DIAGNOSTIC_SOURCE;
+      diag.code = MISSING_KEYS_CODE;
+      diagnostics.push(diag);
+    } else {
+      // Also covers a deleted example file or a disabled setting, so stale keys never linger.
+      this.missingKeys.delete(doc.uri.toString());
+    }
+
     this.collection.set(doc.uri, diagnostics);
+    this.refreshed.fire();
   }
 
   refreshAllOpen(): void {
@@ -526,6 +720,7 @@ class EnvDiagnostics implements vscode.Disposable {
   clear(uri: vscode.Uri): void {
     this.collection.delete(uri);
     this.missingKeys.delete(uri.toString());
+    this.refreshed.fire();
   }
 
   dispose(): void {
@@ -533,6 +728,7 @@ class EnvDiagnostics implements vscode.Disposable {
       clearTimeout(t);
     }
     this.collection.dispose();
+    this.refreshed.dispose();
   }
 
   private toDiagnostic(doc: vscode.TextDocument, issue: EnvIssue): vscode.Diagnostic {
@@ -639,6 +835,42 @@ class EnvCodeActionProvider implements vscode.CodeActionProvider {
 }
 
 // ---------------------------------------------------------------------------
+// Code lens
+// ---------------------------------------------------------------------------
+
+/** `3 keys missing from .env.example | Add` on the first line, fed by the diagnostics pass. */
+class EnvCodeLensProvider implements vscode.CodeLensProvider {
+  readonly onDidChangeCodeLenses: vscode.Event<void>;
+
+  constructor(private readonly diagnostics: EnvDiagnostics) {
+    this.onDidChangeCodeLenses = diagnostics.onDidRefresh;
+  }
+
+  provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
+    const config = getConfig(doc);
+    const missing = this.diagnostics.missingKeys.get(doc.uri.toString());
+    if (!config.codeLensEnabled || !missing?.length || !isEnvDocument(doc)) {
+      return [];
+    }
+    const range = doc.lineAt(0).range;
+    return [
+      new vscode.CodeLens(range, {
+        title: `${plural(missing.length, 'key')} missing from ${config.exampleFileName}`,
+        tooltip: missing.join(', '),
+        command: 'envify.compareWithExample',
+        arguments: [doc.uri],
+      }),
+      new vscode.CodeLens(range, {
+        title: 'Add',
+        tooltip: `Append ${missing.join(', ')}`,
+        command: 'envify.addMissingKeys',
+        arguments: [doc.uri],
+      }),
+    ];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Hover
 // ---------------------------------------------------------------------------
 
@@ -691,11 +923,41 @@ class EnvHoverProvider implements vscode.HoverProvider {
 }
 
 // ---------------------------------------------------------------------------
+// Completion
+// ---------------------------------------------------------------------------
+
+/** Suggests keys from the same file after `${` (and after `$` when invoked manually). */
+class EnvCompletionProvider implements vscode.CompletionItemProvider {
+  provideCompletionItems(doc: vscode.TextDocument, position: vscode.Position): vscode.CompletionItem[] | undefined {
+    if (!isEnvDocument(doc)) {
+      return undefined;
+    }
+    const ctx = referenceCompletionAt(doc.getText(), position.line, position.character);
+    if (!ctx) {
+      return undefined;
+    }
+
+    const range = new vscode.Range(position.line, ctx.startCol, position.line, ctx.endCol);
+    return ctx.candidates.map((entry, index) => {
+      const key = entry.key as string;
+      const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Variable);
+      item.range = range;
+      item.insertText = ctx.braced && !ctx.closed ? `${key}}` : key;
+      item.sortText = String(index).padStart(5, '0');
+      // No value here: the suggest widget pops up unasked, so it must not reveal secrets.
+      item.detail = `Line ${entry.line + 1}`;
+      return item;
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = new EnvDiagnostics();
+  const normalized = new NormalizedEnvProvider();
   const selector: vscode.DocumentSelector = [
     { language: DOTENV_LANGUAGE },
     { pattern: '**/.env' },
@@ -705,6 +967,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     diagnostics,
+    normalized,
 
     vscode.commands.registerCommand('envify.envToJson', () => convertInPlace('envToJson')),
     vscode.commands.registerCommand('envify.jsonToEnv', () => convertInPlace('jsonToEnv')),
@@ -716,6 +979,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('envify.formatDocument', formatCommand),
     vscode.commands.registerCommand('envify.generateExample', generateExample),
     vscode.commands.registerCommand('envify.compareWithExample', compareWithExample),
+    // Not contributed to the palette: invoked from the code lens with the document's URI.
+    vscode.commands.registerCommand('envify.addMissingKeys', addMissingKeys),
+    vscode.commands.registerCommand('envify.compareEnvFiles', (uri?: vscode.Uri, selected?: vscode.Uri[]) =>
+      compareEnvFiles(normalized, uri, selected)
+    ),
 
     vscode.languages.registerDocumentFormattingEditProvider(selector, {
       provideDocumentFormattingEdits: (doc) => formatEdits(doc),
@@ -724,9 +992,15 @@ export function activate(context: vscode.ExtensionContext): void {
       providedCodeActionKinds: EnvCodeActionProvider.kinds,
     }),
     vscode.languages.registerHoverProvider(selector, new EnvHoverProvider()),
+    vscode.languages.registerCodeLensProvider(selector, new EnvCodeLensProvider(diagnostics)),
+    vscode.languages.registerCompletionItemProvider(selector, new EnvCompletionProvider(), '{'),
+    vscode.workspace.registerTextDocumentContentProvider(NORMALIZED_SCHEME, normalized),
 
     vscode.workspace.onDidOpenTextDocument((doc) => diagnostics.schedule(doc, 0)),
-    vscode.workspace.onDidChangeTextDocument((e) => diagnostics.schedule(e.document)),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      diagnostics.schedule(e.document);
+      normalized.sourceChanged(e.document);
+    }),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (isEnvDocument(doc)) {

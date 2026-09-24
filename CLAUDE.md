@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-Envify is a VS Code extension for `.env` files: bidirectional `.env` ⇄ JSON conversion, export to YAML / shell / docker-compose / Kubernetes, `.env.example` generation and comparison, and `dotenv` language support (highlighting, diagnostics, quick fixes, hover, formatter). Published on the VS Code Marketplace by `pawaretdev`.
+Envify is a VS Code extension for `.env` files: bidirectional `.env` ⇄ JSON conversion, export to YAML / shell / docker-compose / Kubernetes, `.env.example` generation and comparison, diffing two env files, and `dotenv` language support (highlighting, diagnostics, quick fixes, hover, `${` completion, snippets, formatter). Published on the VS Code Marketplace by `pawaretdev`.
 
-**Current version:** 1.4.0  
+**Current version:** 1.5.0  
 **Publisher:** pawaretdev  
 **Marketplace:** https://marketplace.visualstudio.com/items?itemName=pawaretdev.envify
 
@@ -16,6 +16,7 @@ src/
   extension.ts      — VS Code API layer. Commands, formatter, diagnostics, code actions, hover.
   converter.test.ts — Tests for converter.ts (run via node, no test framework)
 syntaxes/dotenv.tmLanguage.json — TextMate grammar for the `dotenv` language
+snippets/dotenv.json            — Snippets for the `dotenv` language (`env-block`)
 language-configuration.json     — Comment/bracket config for `dotenv`
 out/                — Compiled JS output (do not edit)
 ```
@@ -37,8 +38,10 @@ out/                — Compiled JS output (do not edit)
 | `envify.formatDocument` | Format .env document | `Shift+Alt+F` |
 | `envify.generateExample` | Write sibling `.env.example` (asks before overwriting) | — |
 | `envify.compareWithExample` | Report missing / empty / extra keys vs `.env.example` | — |
+| `envify.compareEnvFiles` | Pick a second env file (siblings or Browse…) and open `vscode.diff` of both, normalised | — |
+| `envify.addMissingKeys` | Internal (not in `package.json`): code lens target, appends keys missing from `.env.example` | — |
 
-Conversion commands support **selection-based conversion** — if text is selected, only the selection is converted. Language mode is updated only on full-file conversions. `generateExample` / `compareWithExample` accept an optional `Uri` (Explorer context menu).
+Conversion commands support **selection-based conversion** — if text is selected, only the selection is converted. Language mode is updated only on full-file conversions. `generateExample` / `compareWithExample` accept an optional `Uri` (Explorer context menu); `compareEnvFiles` also takes the Explorer multi-selection and skips the picker when exactly two files are selected. Its diff sides are read-only `envify-normalized:` documents served by `NormalizedEnvProvider` (`normalizeEnv` of the source document, refreshed on every edit of the source).
 
 Editor context menu items live in the `envify.editorSubmenu` submenu. Settings are read through `getConfig()` in `extension.ts`; add new ones to `package.json` `contributes.configuration` and to `EnvifyConfig`.
 
@@ -47,6 +50,9 @@ Editor context menu items live in the `envify.editorSubmenu` submenu. Settings a
 - Language id `dotenv`, files `.env`, `.env.*`, `*.env`. Diagnostics/hover/code actions also apply by filename so they work when another extension or editor overrides the language id.
 - Diagnostics come from `lintEnv` (codes: `invalid-line`, `duplicate-key`, `unquoted-spaces`, `unclosed-quote`, `undefined-reference`) plus `missing-keys` computed in `extension.ts` from `compareEnv` against the sibling example file. Each code has a matching quick fix in `EnvCodeActionProvider`.
 - Diagnostics are debounced (300 ms) per document and refreshed for all open env docs on save or config change.
+- Code lens (`EnvCodeLensProvider`) reads `EnvDiagnostics.missingKeys` and refreshes on `EnvDiagnostics.onDidRefresh`; it only appears when diagnostics and `compareWithExample` are on. `addMissingKeys` recomputes the missing keys itself rather than trusting the (debounced) map.
+- Completion items show key names and line numbers only — never values, because the suggest widget opens without the user asking to see a secret. Hover is the explicit way to see a value.
+- Completion (`EnvCompletionProvider`, trigger `{`) delegates to `referenceCompletionAt` in `converter.ts`, which decides whether the cursor is on a `${…}` / `$…` reference inside a value and lists the candidate keys. `language-configuration.json` auto-closes `${` with `}`, so completions insert only the name when a `}` already follows.
 
 ## Tech Stack
 
@@ -82,7 +88,7 @@ To test in VS Code: press `F5` in VS Code to launch Extension Development Host.
 ## Coding Conventions
 
 - No external runtime dependencies — keep the extension lightweight
-- `converter.ts` exports pure functions only. Main entry points: `parseEnvDocument`, `parseEnv`, `envToJson`, `jsonToEnv`, `formatEnv`, `envToExample`, `compareEnv`, `lintEnv`, `envToYaml`, `envToShell`, `envToDockerCompose`, `envToKubernetesConfigMap`, `envToKubernetesSecret`
+- `converter.ts` exports pure functions only. Main entry points: `parseEnvDocument`, `parseEnv`, `envToJson`, `jsonToEnv`, `formatEnv`, `envToExample`, `compareEnv`, `diffEnv`, `normalizeEnv`, `lintEnv`, `referenceCompletionAt`, `envToYaml`, `envToShell`, `envToDockerCompose`, `envToKubernetesConfigMap`, `envToKubernetesSecret`
 - Options are passed as plain objects (`EnvToJsonOptions`, `JsonToEnvOptions`, …) with defaults inside the function
 - Error messages are surfaced via `vscode.window.showErrorMessage` — never throw unhandled in command handlers
 - Conversion functions must throw a descriptive `Error` on invalid input (not return null/undefined)
@@ -117,6 +123,8 @@ To test in VS Code: press `F5` in VS Code to launch Extension Development Host.
 
 **`.env.example` (`envToExample`):** same layout as `formatEnv`, values replaced by the placeholder.
 
+**Comparing two env files:** `diffEnv` compares parsed values (after optional expansion) and reports `onlyLeft` / `onlyRight` / `changed` / `same`. `normalizeEnv` prints one `KEY=value` line per key, sorted, re-quoted with `formatEnvValue`, so order, comments, `export` and quoting style never show up as differences. Key lookups use own-property checks (`hasKey`) so names like `constructor` work.
+
 **Other formats:** YAML scalars are quoted whenever a plain scalar could be misread (booleans, numbers, `: `, `#`, empty). ConfigMap values are always quoted. Secret values are base64.
 
 ## Testing
@@ -140,4 +148,4 @@ npm test   # compiles + runs node out/converter.test.js
 - Do not import `vscode` in `converter.ts`
 - Do not use a bundler (webpack/esbuild) unless explicitly discussed — current `tsc` output is sufficient
 - Do not commit `.vsix` files to git (they are build artifacts)
-- Do not read or write files from `extension.ts` beyond the sibling `.env.example` — the README promises this
+- Do not read files from `extension.ts` other than the sibling `.env.example` and the files the user picks in Compare .env Files, and do not write any file but `.env.example` — the README's Privacy section promises this

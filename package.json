@@ -1,8 +1,8 @@
 {
   "name": "envify",
   "displayName": "Envify",
-  "description": "Convert .env to JSON, YAML, shell, docker-compose and Kubernetes — plus .env syntax highlighting, linting, .env.example sync and formatting.",
-  "version": "1.4.0",
+  "description": "Convert .env to JSON, YAML, shell, docker-compose and Kubernetes — plus .env syntax highlighting, linting, ${VAR} autocomplete, .env file comparison, .env.example sync and formatting.",
+  "version": "1.5.0",
   "publisher": "pawaretdev",
   "engines": {
     "vscode": "^1.80.0"
@@ -22,6 +22,8 @@
     "environment",
     "variables",
     "env.example",
+    "compare",
+    "diff",
     "docker-compose",
     "kubernetes",
     "envify"
@@ -60,6 +62,12 @@
         "language": "dotenv",
         "scopeName": "source.dotenv",
         "path": "./syntaxes/dotenv.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "dotenv",
+        "path": "./snippets/dotenv.json"
       }
     ],
     "commands": [
@@ -111,6 +119,11 @@
       {
         "command": "envify.compareWithExample",
         "title": "Compare with .env.example",
+        "category": "Envify"
+      },
+      {
+        "command": "envify.compareEnvFiles",
+        "title": "Compare .env Files…",
         "category": "Envify"
       }
     ],
@@ -165,6 +178,10 @@
           "group": "3_example@2"
         },
         {
+          "command": "envify.compareEnvFiles",
+          "group": "3_example@3"
+        },
+        {
           "command": "envify.formatDocument",
           "group": "4_format@1"
         }
@@ -178,6 +195,11 @@
         {
           "command": "envify.compareWithExample",
           "group": "envify@2",
+          "when": "resourceFilename =~ /\\.env/"
+        },
+        {
+          "command": "envify.compareEnvFiles",
+          "group": "envify@3",
           "when": "resourceFilename =~ /\\.env/"
         }
       ]
@@ -269,6 +291,11 @@
           "type": "boolean",
           "default": true,
           "description": "Warn when a .env file is missing keys that exist in its sibling .env.example."
+        },
+        "envify.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show `N keys missing from .env.example | Add` above the first line of a `.env` file. Needs `#envify.diagnostics.enabled#` and `#envify.diagnostics.compareWithExample#`."
         },
         "envify.showNotifications": {
           "type": "boolean",

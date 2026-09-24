@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import {
   compareEnv,
+  diffEnv,
   envToDockerCompose,
   envToExample,
   envToJson,
@@ -13,8 +14,10 @@ import {
   inferType,
   jsonToEnv,
   lintEnv,
+  normalizeEnv,
   parseEnv,
   parseEnvDocument,
+  referenceCompletionAt,
   yamlScalar,
 } from './converter';
 
@@ -418,6 +421,137 @@ test('reports missing, extra and empty keys', () => {
 
 test('reports nothing when in sync', () => {
   assert.deepStrictEqual(compareEnv('A=1\nB=2', 'A=\nB='), { missing: [], extra: [], empty: [] });
+});
+
+test('does not treat Object.prototype names as present', () => {
+  assert.deepStrictEqual(compareEnv('A=1', 'A=\nconstructor=\ntoString='), {
+    missing: ['constructor', 'toString'],
+    extra: [],
+    empty: [],
+  });
+});
+
+// --- diffEnv / normalizeEnv ---
+
+section('diffEnv');
+
+test('splits keys into only-left, only-right, changed and same', () => {
+  const left = 'A=1\nB=2\nC=3\nD=x';
+  const right = 'E=5\nB=2\nC=30\nF=6';
+  assert.deepStrictEqual(diffEnv(left, right), {
+    onlyLeft: ['A', 'D'],
+    onlyRight: ['E', 'F'],
+    changed: ['C'],
+    same: ['B'],
+  });
+});
+
+test('compares parsed values, not how they are written', () => {
+  const diff = diffEnv('A="x y"\nexport B=1 # note', "A='x y'\nB=1");
+  assert.deepStrictEqual(diff, { onlyLeft: [], onlyRight: [], changed: [], same: ['A', 'B'] });
+});
+
+test('an empty value differs from a missing key', () => {
+  assert.deepStrictEqual(diffEnv('A=', 'B='), { onlyLeft: ['A'], onlyRight: ['B'], changed: [], same: [] });
+});
+
+test('does not treat Object.prototype names as present', () => {
+  assert.deepStrictEqual(diffEnv('constructor=1', 'A=1').onlyLeft, ['constructor']);
+});
+
+test('expands variables when asked', () => {
+  const left = 'HOST=a\nURL=http://${HOST}';
+  const right = 'HOST=b\nURL=http://${HOST}';
+  assert.deepStrictEqual(diffEnv(left, right).changed, ['HOST']);
+  assert.deepStrictEqual(diffEnv(left, right, { expandVariables: true }).changed, ['HOST', 'URL']);
+});
+
+section('normalizeEnv');
+
+test('sorts keys and drops comments, blanks and export', () => {
+  assert.strictEqual(normalizeEnv('# c\nexport B=2\n\nA=1 # note'), 'A=1\nB=2\n');
+});
+
+test('re-quotes values consistently', () => {
+  assert.strictEqual(normalizeEnv("A='x y'\nB=\"plain\"\nC=\"\""), 'A="x y"\nB=plain\nC=""\n');
+});
+
+test('keeps multi-line values on one line', () => {
+  assert.strictEqual(normalizeEnv('KEY="a\nb"'), 'KEY="a\\nb"\n');
+});
+
+test('later duplicates win', () => {
+  assert.strictEqual(normalizeEnv('A=1\nA=2'), 'A=2\n');
+});
+
+test('differently written files normalise to the same text', () => {
+  assert.strictEqual(normalizeEnv('B = "2"\nA=1'), normalizeEnv("# header\nexport A='1'\nB=2\n\n"));
+});
+
+test('empty content gives an empty string', () => {
+  assert.strictEqual(normalizeEnv('# only a comment\n'), '');
+});
+
+// --- referenceCompletionAt ---
+
+section('referenceCompletionAt');
+
+function keysOf(ctx: ReturnType<typeof referenceCompletionAt>): string[] | undefined {
+  return ctx?.candidates.map((e) => e.key as string);
+}
+
+test('completes inside an auto-closed ${}', () => {
+  const ctx = referenceCompletionAt('HOST=db\nURL=${}', 1, 6);
+  assert.deepStrictEqual(
+    ctx && { braced: ctx.braced, startCol: ctx.startCol, endCol: ctx.endCol, closed: ctx.closed },
+    { braced: true, startCol: 6, endCol: 6, closed: true }
+  );
+  assert.deepStrictEqual(keysOf(ctx), ['HOST']);
+});
+
+test('replaces the whole partial name around the cursor', () => {
+  const ctx = referenceCompletionAt('DB_HOST=x\nURL=http://${DB_HO}:1', 1, 15);
+  assert.deepStrictEqual(ctx && [ctx.startCol, ctx.endCol, ctx.closed], [13, 18, true]);
+});
+
+test('reports an unclosed brace', () => {
+  const ctx = referenceCompletionAt('A=1\nB=${A', 1, 5);
+  assert.deepStrictEqual(ctx && [ctx.braced, ctx.startCol, ctx.endCol, ctx.closed], [true, 4, 5, false]);
+});
+
+test('completes a bare $NAME', () => {
+  const ctx = referenceCompletionAt('A=1\nB=x$A', 1, 5);
+  assert.deepStrictEqual(ctx && [ctx.braced, ctx.startCol, ctx.endCol], [false, 4, 5]);
+});
+
+test('works inside double quotes and multi-line values', () => {
+  assert.ok(referenceCompletionAt('A=1\nB="pre ${}"', 1, 9));
+  const ctx = referenceCompletionAt('A=1\nB="line1\n${}\nend"', 2, 2);
+  assert.deepStrictEqual(ctx && [ctx.startCol, ctx.closed], [2, true]);
+});
+
+test('offers every other key, once, in file order', () => {
+  const ctx = referenceCompletionAt('A=1\nB=2\nA=3\nC=${}\nD=4', 3, 4);
+  assert.deepStrictEqual(keysOf(ctx), ['A', 'B', 'D']);
+  assert.strictEqual(ctx?.candidates[0].value, '3');
+});
+
+test('ignores single-quoted values', () => {
+  assert.strictEqual(referenceCompletionAt("A=1\nB='${}'", 1, 5), undefined);
+});
+
+test('ignores escaped \\$', () => {
+  assert.strictEqual(referenceCompletionAt('A=1\nB=\\${}', 1, 5), undefined);
+});
+
+test('ignores keys, comments and inline comments', () => {
+  assert.strictEqual(referenceCompletionAt('A=1\n${}=x', 1, 2), undefined);
+  assert.strictEqual(referenceCompletionAt('A=1\n# ${}', 1, 4), undefined);
+  assert.strictEqual(referenceCompletionAt('A=1\nB=x # ${}', 1, 8), undefined);
+});
+
+test('ignores a { that does not follow $', () => {
+  assert.strictEqual(referenceCompletionAt('A=1\nB={}', 1, 3), undefined);
 });
 
 // --- lintEnv ---

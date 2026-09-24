@@ -20,7 +20,12 @@ The `.env` toolkit for VS Code — convert `.env` to JSON, YAML, shell, docker-c
 
 - **Generate `.env.example`** — same keys, comments and layout, values blanked out
 - **Compare with `.env.example`** — see which keys are missing, empty or extra, and add the missing ones in one click
-- **Missing keys show up as a warning** in the Problems panel whenever a `.env` file is open
+- **Missing keys show up as a warning** in the Problems panel whenever a `.env` file is open, plus a code lens on the first line — `3 keys missing from .env.example | Add`
+
+### Compare `.env` files
+
+- **Compare `.env.local` with `.env.production`** (or any two files) side by side — keys are sorted and values quoted the same way, so only real differences show up
+- **See what differs at a glance** — keys that exist in only one file and keys with different values, with one click to add the missing keys to either file
 
 ### Language support for `.env`
 
@@ -28,6 +33,8 @@ The `.env` toolkit for VS Code — convert `.env` to JSON, YAML, shell, docker-c
 - **Diagnostics** — invalid lines, duplicate keys, unquoted values with spaces, unclosed quotes, undefined references
 - **Quick fixes** — wrap in quotes, remove duplicate, close quote, comment out, add missing keys
 - **Hover** — see a key's value, and `${VAR}` references resolved from the same file
+- **Autocomplete** — type `${` in a value to pick from the keys defined in the same file (key names only; values are never shown in the suggestion list)
+- **Snippet** — `env-block` inserts a commented group of keys sharing a prefix
 - **Format Document** — trims whitespace around `=`, collapses blank lines, ensures a trailing newline (works with Format on Save)
 
 ## Usage
@@ -47,6 +54,7 @@ Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) and search for:
 | `Envify: Copy JSON as .env` | Copy the .env result to the clipboard |
 | `Envify: Generate .env.example` | Write `.env.example` next to the current `.env` |
 | `Envify: Compare with .env.example` | Report missing / empty / extra keys |
+| `Envify: Compare .env Files…` | Diff two env files key by key (e.g. `.env.local` vs `.env.production`) |
 | `Envify: Format .env Document` | Clean up the current `.env` file |
 
 ### Keyboard Shortcuts
@@ -59,7 +67,7 @@ Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) and search for:
 
 ### Right-Click Menu
 
-Right-click in the editor and open the **Envify** submenu for every command. In the Explorer, right-click a `.env` file for **Generate .env.example** and **Compare with .env.example**.
+Right-click in the editor and open the **Envify** submenu for every command. In the Explorer, right-click a `.env` file for **Generate .env.example**, **Compare with .env.example** and **Compare .env Files…** — select two files first to compare them directly.
 
 ## Examples
 
@@ -147,6 +155,19 @@ data:
 export DATABASE_URL='postgres://localhost:5432/mydb'
 ```
 
+### Compare .env files
+
+`Envify: Compare .env Files…` lists the other `.env*` files in the same folder (or lets you browse), then opens a diff where both sides are normalised:
+
+```env
+# .env.local                        # .env.production
+API_URL=http://localhost:3000       API_URL=https://api.example.com
+DEBUG=true
+SENTRY_DSN=""                       SENTRY_DSN=https://abc@sentry.io/1
+```
+
+Comments, `export`, ordering and quoting style are ignored. The diff updates while you edit either file.
+
 ### .env.example
 
 ```env
@@ -173,6 +194,7 @@ PRIVATE_KEY=
 | `envify.example.placeholder` | `""` | Value written after `=` in generated examples |
 | `envify.diagnostics.enabled` | `true` | Show problems in `.env` files |
 | `envify.diagnostics.compareWithExample` | `true` | Warn about keys missing from `.env.example` |
+| `envify.codeLens.enabled` | `true` | Show the "keys missing from `.env.example` \| Add" code lens |
 | `envify.showNotifications` | `true` | Show a toast after each conversion |
 
 ## Parsing rules
@@ -190,7 +212,8 @@ Envify works **100% offline**. Your `.env` secrets never leave your machine.
 
 - No network requests — no data is sent to any server
 - No telemetry or analytics
-- No file writes except `.env.example` when you ask for it; the only file read besides the editor is the sibling `.env.example`
+- No file writes except `.env.example` when you ask for it
+- Besides the open editor, the only files read are the sibling `.env.example` and the files you pick in **Compare .env Files** (which lists the `.env*` file names in the same folder to offer them)
 - Zero runtime dependencies — no third-party code runs behind the scenes
 - Source code is open and auditable on [GitHub](https://github.com/pawaretdev/envify)
 

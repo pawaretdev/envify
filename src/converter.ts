@@ -94,6 +94,30 @@ export interface EnvComparison {
   empty: string[];
 }
 
+export interface EnvDiff {
+  /** Keys defined only in the left file */
+  onlyLeft: string[];
+  /** Keys defined only in the right file */
+  onlyRight: string[];
+  /** Keys defined in both files with different values */
+  changed: string[];
+  /** Keys defined in both files with the same value */
+  same: string[];
+}
+
+export interface ReferenceCompletion {
+  /** True for `${NAME}`, false for a bare `$NAME` */
+  braced: boolean;
+  /** Column where the partial name starts */
+  startCol: number;
+  /** Column just past the name characters around the cursor */
+  endCol: number;
+  /** A `}` already follows the name (e.g. inserted by auto-closing) */
+  closed: boolean;
+  /** Entries that can be referenced: every key except the one being defined, last definition wins */
+  candidates: EnvLine[];
+}
+
 export type EnvIssueCode =
   | 'invalid-line'
   | 'duplicate-key'
@@ -651,6 +675,11 @@ export function envToExample(content: string, options: EnvToExampleOptions = {})
 // Comparison
 // ---------------------------------------------------------------------------
 
+/** Own-property check, so keys like `constructor` are not found on the prototype. */
+function hasKey(vars: Record<string, string>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(vars, key);
+}
+
 /**
  * Compare a `.env` file against its `.env.example`.
  */
@@ -661,10 +690,43 @@ export function compareEnv(envContent: string, exampleContent: string): EnvCompa
   const exampleKeys = Object.keys(example);
 
   return {
-    missing: exampleKeys.filter((k) => !(k in env)),
-    extra: envKeys.filter((k) => !(k in example)),
-    empty: envKeys.filter((k) => k in example && env[k] === ''),
+    missing: exampleKeys.filter((k) => !hasKey(env, k)),
+    extra: envKeys.filter((k) => !hasKey(example, k)),
+    empty: envKeys.filter((k) => hasKey(example, k) && env[k] === ''),
   };
+}
+
+/**
+ * Compare two `.env` files key by key (e.g. `.env.local` against `.env.production`).
+ * Keys keep the order of the file they come from.
+ */
+export function diffEnv(left: string, right: string, options: ParseEnvOptions = {}): EnvDiff {
+  const a = parseEnv(left, options);
+  const b = parseEnv(right, options);
+  const diff: EnvDiff = { onlyLeft: [], onlyRight: [], changed: [], same: [] };
+
+  for (const key of Object.keys(a)) {
+    if (!hasKey(b, key)) {
+      diff.onlyLeft.push(key);
+    } else if (a[key] === b[key]) {
+      diff.same.push(key);
+    } else {
+      diff.changed.push(key);
+    }
+  }
+  diff.onlyRight = Object.keys(b).filter((k) => !hasKey(a, k));
+
+  return diff;
+}
+
+/**
+ * One `KEY=value` line per key, sorted, with values re-quoted the same way on every run.
+ * Two files that differ only in order, comments, `export` or quoting style normalise to the same text.
+ */
+export function normalizeEnv(content: string, options: ParseEnvOptions = {}): string {
+  const vars = parseEnv(content, options);
+  const keys = Object.keys(vars).sort();
+  return keys.map((key) => `${key}=${formatEnvValue(vars[key])}`).join('\n') + (keys.length ? '\n' : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -765,6 +827,59 @@ export function lintEnv(content: string): EnvIssue[] {
   }
 
   return issues;
+}
+
+// ---------------------------------------------------------------------------
+// Reference completion
+// ---------------------------------------------------------------------------
+
+/**
+ * Decide whether the cursor (0-based `line`/`col`) is typing a `${NAME}` or `$NAME`
+ * reference inside a value, and which keys can complete it. Returns undefined in keys,
+ * comments, single-quoted values (never expanded) and after an escaped `\$`.
+ */
+export function referenceCompletionAt(content: string, line: number, col: number): ReferenceCompletion | undefined {
+  const doc = parseEnvDocument(content);
+  const entry = doc.lines.find((l) => l.type === 'entry' && l.line <= line && line <= l.endLine);
+  if (!entry || entry.quote === "'") {
+    return undefined;
+  }
+
+  // Bounds of the raw value on the cursor's line (continuation lines of a quoted value start at column 0).
+  const offset = line - entry.line;
+  const from = offset === 0 ? (entry.valueStart as number) : 0;
+  const to = from + (entry.rawValue as string).split('\n')[offset].length;
+  if (col < from || col > to) {
+    return undefined;
+  }
+
+  const text = entry.raw.split('\n')[offset];
+  const before = text.slice(from, col);
+  const match = /\$\{([A-Za-z_][A-Za-z0-9_]*)?$/.exec(before) ?? /\$([A-Za-z_][A-Za-z0-9_]*)?$/.exec(before);
+  if (!match || text[from + match.index - 1] === '\\') {
+    return undefined;
+  }
+
+  const braced = match[0][1] === '{';
+  let endCol = col;
+  while (endCol < to && /[A-Za-z0-9_]/.test(text[endCol])) {
+    endCol++;
+  }
+
+  const candidates = new Map<string, EnvLine>();
+  for (const e of envEntries(doc)) {
+    if (e.key !== entry.key) {
+      candidates.set(e.key as string, e);
+    }
+  }
+
+  return {
+    braced,
+    startCol: col - (match[1] ?? '').length,
+    endCol,
+    closed: braced && text[endCol] === '}',
+    candidates: [...candidates.values()],
+  };
 }
 
 // ---------------------------------------------------------------------------
