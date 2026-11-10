@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.6.1
+
 ### Security
 - Generate `.env.example` no longer copies lines it cannot parse, which could put a secret into a committed file
 - `envify.example.fileName` is now treated as a file name only, so workspace settings cannot point it outside the folder of the `.env` file
