@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 1.6.0
 
 ### Paste JSON into a .env file

@@ -1,5 +1,9 @@
 # Envify
 
+[![VS Code Marketplace](https://vsmarketplacebadges.dev/version/pawaretdev.envify.svg)](https://marketplace.visualstudio.com/items?itemName=pawaretdev.envify)
+[![Open VSX](https://img.shields.io/open-vsx/v/pawaretdev/envify)](https://open-vsx.org/extension/pawaretdev/envify)
+[![CI](https://github.com/pawaretdev/envify/actions/workflows/ci.yml/badge.svg)](https://github.com/pawaretdev/envify/actions/workflows/ci.yml)
+
 The `.env` toolkit for VS Code — convert `.env` to JSON, YAML, shell, docker-compose and Kubernetes, keep `.env` in sync with `.env.example`, and get syntax highlighting, linting, quick fixes and formatting for `.env` files. Zero dependencies, 100% offline.
 
 ## Support Further Development
