@@ -190,17 +190,17 @@
         {
           "command": "envify.generateExample",
           "group": "envify@1",
-          "when": "resourceFilename =~ /\\.env/"
+          "when": "resourceFilename =~ /\\.env/ && !explorerResourceIsFolder"
         },
         {
           "command": "envify.compareWithExample",
           "group": "envify@2",
-          "when": "resourceFilename =~ /\\.env/"
+          "when": "resourceFilename =~ /\\.env/ && !explorerResourceIsFolder"
         },
         {
           "command": "envify.compareEnvFiles",
           "group": "envify@3",
-          "when": "resourceFilename =~ /\\.env/"
+          "when": "resourceFilename =~ /\\.env/ && !explorerResourceIsFolder"
         }
       ]
     },
@@ -209,7 +209,7 @@
         "command": "envify.envToJson",
         "key": "ctrl+shift+j",
         "mac": "cmd+shift+j",
-        "when": "editorTextFocus"
+        "when": "editorTextFocus && (editorLangId == dotenv || resourceFilename =~ /\\.env/ || editorHasSelection)"
       },
       {
         "command": "envify.jsonToEnv",

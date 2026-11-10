@@ -713,4 +713,92 @@ test('formatEnv is idempotent', () => {
   assert.strictEqual(formatEnv(once), once);
 });
 
+// --- regressions from the repo audit ---
+
+section('audit regressions');
+
+test('envToExample never copies invalid lines', () => {
+  assert.strictEqual(envToExample('MY-API-KEY=hunter2\nsk_live_abc\nOK=1\n'), 'OK=\n');
+});
+
+test('text after a closing quote is kept', () => {
+  assert.strictEqual(formatEnv('CMD="a" "b"\nP="abc"def\n'), 'CMD="a" "b"\nP="abc"def\n');
+  assert.deepStrictEqual(parseEnv('P="abc"def'), { P: '"abc"def' });
+  assert.ok(!lintEnv('P="abc"def').some((i) => i.code === 'unclosed-quote'));
+});
+
+test('a quote closed only by the next value is reported and loses nothing', () => {
+  const input = 'A="x\nB="y"\n';
+  assert.strictEqual(formatEnv(input), input);
+  assert.deepStrictEqual(parseEnv(input), { A: '"x', B: 'y' });
+  assert.strictEqual(lintEnv(input)[0].code, 'unclosed-quote');
+});
+
+test('multi-line values keep their span, with escapes across lines', () => {
+  const doc = parseEnvDocument('A="l1\\\nl2\\"\nl3" # c\nB=1');
+  assert.strictEqual(doc.lines[0].endLine, 2);
+  assert.strictEqual(doc.lines[0].inlineComment, '# c');
+  assert.strictEqual(doc.lines[1].key, 'B');
+});
+
+test('an unclosed quote in a big file stays fast', () => {
+  let input = 'A="\n';
+  for (let i = 0; i < 20000; i++) {
+    input += `KEY_${i}=value_${i}\n`;
+  }
+  const start = Date.now();
+  lintEnv(input);
+  assert.ok(Date.now() - start < 2000);
+});
+
+test('envToJson refuses content with no entries, but allows an empty file', () => {
+  assert.throws(() => envToJson('const x = 1;\nfunction f() {}\n'), /No KEY=value/);
+  assert.strictEqual(envToJson(''), '{}');
+  assert.strictEqual(envToJson('# only a comment\n'), '{}');
+});
+
+test('jsonToEnv protects bare $NAME but keeps ${NAME} references', () => {
+  assert.strictEqual(jsonToEnv('{"P":"pa$word"}'), "P='pa$word'");
+  assert.deepStrictEqual(parseEnv(jsonToEnv('{"P":"pa$word"}'), { expandVariables: true }), { P: 'pa$word' });
+  assert.strictEqual(jsonToEnv('{"U":"${HOST}/x"}'), 'U=${HOST}/x');
+  assert.strictEqual(jsonToEnv('{"P":"it\'s$x"}'), 'P="it\'s$x"');
+});
+
+test('docker-compose escapes $ only in single-quoted values, last duplicate wins', () => {
+  assert.strictEqual(envToDockerCompose("P='pa$word'\n"), 'environment:\n  P: "pa$$word"\n');
+  assert.strictEqual(envToDockerCompose('U=${HOST}/x\n'), 'environment:\n  U: "${HOST}/x"\n');
+  assert.strictEqual(envToDockerCompose("P='a$b'\nP=c\n"), 'environment:\n  P: c\n');
+});
+
+test('conflicting nested keys throw in either order', () => {
+  const options = { nestedSeparator: '__' };
+  assert.throws(() => envToJson('DB=x\nDB__HOST=y', options), /"DB"/);
+  assert.throws(() => envToJson('DB__HOST=y\nDB=x', options), /"DB"/);
+  assert.throws(() => envToJson('A__B__C=1\nA__B=2', options), /"A\.B"/);
+  assert.deepStrictEqual(JSON.parse(envToJson('A__B=1\nA__B=2', options)), { A: { B: '2' } });
+  assert.deepStrictEqual(JSON.parse(envToJson('constructor__x=1', options)), { constructor: { x: '1' } });
+});
+
+test('__proto__ cannot pollute Object.prototype through nested keys', () => {
+  envToJson('__proto__Xpolluted=1\n', { nestedSeparator: 'X' });
+  assert.strictEqual(({} as Record<string, unknown>).polluted, undefined);
+});
+
+test('yamlScalar quotes anything starting with a digit', () => {
+  for (const v of ['2024-01-01', '12:30:00', '1:30', '0x1f', '1e3', '1.2.3']) {
+    assert.strictEqual(yamlScalar(v), JSON.stringify(v));
+  }
+});
+
+test('inferType keeps numbers that would not print back the same', () => {
+  assert.strictEqual(inferType('1.10'), '1.10');
+  assert.strictEqual(inferType('1.0'), '1.0');
+  assert.strictEqual(inferType('0.12345678901234567890'), '0.12345678901234567890');
+  assert.strictEqual(inferType('1.5'), 1.5);
+});
+
+test('a default value may be a braced reference', () => {
+  assert.deepStrictEqual(parseEnv('B=1\nX=${A:-${B}}/y', { expandVariables: true }), { B: '1', X: '1/y' });
+});
+
 console.log(failures === 0 ? '\nAll tests passed.' : `\n${failures} test(s) failed.`);

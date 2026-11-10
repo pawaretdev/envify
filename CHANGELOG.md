@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Security
+- Generate `.env.example` no longer copies lines it cannot parse, which could put a secret into a committed file
+- `envify.example.fileName` is now treated as a file name only, so workspace settings cannot point it outside the folder of the `.env` file
+- Nested keys can no longer write to `Object.prototype` through a `__proto__` segment
+
+### Fixed
+- Format no longer deletes text after a closing quote (`CMD="a" "b"`). The line is kept as written
+- A quote left open above another quoted value is now reported instead of swallowing the next lines
+- Convert .env to JSON refuses content with no `KEY=value` lines instead of replacing it with `{}`, and its shortcut now works only in env files or on a selection
+- The duplicate-key quick fix now removes the earlier definition, which keeps the value in effect, and handles multi-line values
+- JSON to `.env` wraps values like `pa$word` in single quotes so tools that expand variables leave them alone
+- docker-compose output escapes `$` in single-quoted values
+- Converting with nested keys now reports a conflict (`DB` and `DB__HOST`) instead of dropping a value
+- YAML output quotes values that start with a digit, such as dates and times
+- `inferTypes` keeps values like `1.10` as strings so no digits are lost
+- `${A:-${B}}` now resolves the inner reference
+- Explorer menu items no longer appear on folders
+
+### Performance
+- An unclosed quote no longer slows down linting of large files
+- Edits in other file types no longer trigger Envify's diagnostics pass
+
 ## 1.6.0
 
 ### Paste JSON into a .env file

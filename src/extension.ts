@@ -64,7 +64,8 @@ function getConfig(scope?: vscode.ConfigurationScope): EnvifyConfig {
       nestedSeparator,
     },
     expandVariables,
-    exampleFileName: cfg.get<string>('example.fileName', '.env.example'),
+    // Name only: workspace settings must not be able to aim the read or write outside this folder.
+    exampleFileName: cfg.get<string>('example.fileName', '.env.example').split(/[\\/]/).pop() || '.env.example',
     examplePlaceholder: cfg.get<string>('example.placeholder', ''),
     diagnosticsEnabled: cfg.get<boolean>('diagnostics.enabled', true),
     compareWithExample: cfg.get<boolean>('diagnostics.compareWithExample', true),
@@ -149,7 +150,12 @@ function requireEditor(): vscode.TextEditor | undefined {
 /** Resolve the document a command should act on: an explorer URI, or the active editor. */
 async function resolveDocument(uri?: vscode.Uri): Promise<vscode.TextDocument | undefined> {
   if (uri instanceof vscode.Uri) {
-    return vscode.workspace.openTextDocument(uri);
+    try {
+      return await vscode.workspace.openTextDocument(uri);
+    } catch (err) {
+      fail(err);
+      return undefined;
+    }
   }
   return requireEditor()?.document;
 }
@@ -736,11 +742,16 @@ class EnvDiagnostics implements vscode.Disposable {
     }
 
     const text = doc.getText();
+    const version = doc.version;
     const diagnostics = lintEnv(text).map((issue) => this.toDiagnostic(doc, issue));
 
     let missing: string[] = [];
     if (config.compareWithExample && !isExampleDocument(doc) && !doc.isUntitled) {
       const exampleText = await readFileText(siblingUri(doc.uri, config.exampleFileName));
+      // Closed or edited during the read: this result is stale and the edit scheduled a newer pass.
+      if (doc.isClosed || doc.version !== version) {
+        return;
+      }
       if (exampleText !== undefined) {
         missing = compareEnv(text, exampleText).missing;
       }
@@ -835,12 +846,22 @@ class EnvCodeActionProvider implements vscode.CodeActionProvider {
   }
 
   private fixFor(doc: vscode.TextDocument, diag: vscode.Diagnostic): vscode.CodeAction | undefined {
-    const lineRange = doc.lineAt(diag.range.start.line).rangeIncludingLineBreak;
     const rangeText = doc.getText(diag.range);
 
     switch (diag.code) {
-      case 'duplicate-key':
-        return this.action('Remove duplicate definition', diag, doc, [vscode.TextEdit.delete(lineRange)]);
+      case 'duplicate-key': {
+        // The last definition is the one in effect, so the earlier one is what can go.
+        const firstLine = diag.relatedInformation?.[0]?.location.range.start.line;
+        const first = parseEnvDocument(doc.getText()).lines.find(
+          (l) => l.type === 'entry' && l.line === firstLine && l.key === rangeText
+        );
+        if (!first) {
+          return undefined;
+        }
+        return this.action('Remove earlier definition', diag, doc, [
+          vscode.TextEdit.delete(new vscode.Range(first.line, 0, first.endLine + 1, 0)),
+        ]);
+      }
 
       case 'unquoted-spaces': {
         const quoted = `"${rangeText.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -1052,9 +1073,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.languages.registerCompletionItemProvider(selector, new EnvCompletionProvider(), '{'),
     vscode.workspace.registerTextDocumentContentProvider(NORMALIZED_SCHEME, normalized),
 
-    vscode.workspace.onDidOpenTextDocument((doc) => diagnostics.schedule(doc, 0)),
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (isEnvDocument(doc)) {
+        diagnostics.schedule(doc, 0);
+      }
+    }),
     vscode.workspace.onDidChangeTextDocument((e) => {
-      diagnostics.schedule(e.document);
+      if (isEnvDocument(e.document)) {
+        diagnostics.schedule(e.document);
+      }
       normalized.sourceChanged(e.document);
       void suggestConvertPastedJson(e);
     }),
