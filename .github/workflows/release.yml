@@ -2,13 +2,32 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [package.json]
 
 jobs:
-  publish:
+  check:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      is_new: ${{ steps.version.outputs.is_new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          existing="$(git ls-remote --tags origin "refs/tags/$tag")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -z "$existing" ]; then echo "is_new=true"; else echo "is_new=false"; fi >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: check
+    if: needs.check.outputs.is_new == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,11 +37,18 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx @vscode/vsce package --no-dependencies
+      # --skip-duplicate lets a re-run finish when only one store succeeded the first time.
       - name: Publish to Open VSX
-        run: npx --no-install ovsx publish ./*.vsix -p "$OVSX_PAT"
+        run: npx --no-install ovsx publish ./*.vsix -p "$OVSX_PAT" --skip-duplicate
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
       - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --packagePath ./*.vsix -p "$VSCE_PAT"
+        run: npx @vscode/vsce publish --packagePath ./*.vsix -p "$VSCE_PAT" --skip-duplicate
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Tag the release
+        run: |
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+        env:
+          TAG: ${{ needs.check.outputs.tag }}

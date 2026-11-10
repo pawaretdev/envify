@@ -143,8 +143,8 @@ npm test   # compiles + runs node out/converter.test.js
 
 1. Move the **Unreleased** notes in `CHANGELOG.md` under the new version
 2. Bump with `npm version <x.y.z> --no-git-tag-version` and update **Current version** above
-3. Commit as `chore(release): x.y.z`, then wait for CI on `main`
-4. Push tag `vx.y.z`: the Release workflow publishes to Open VSX and the VS Code Marketplace. Do not also run `npm run publish:*`
+3. Commit as `chore(release): x.y.z` on a branch and open a PR
+4. Merging the PR is the release: when `main` has a version with no tag yet, the Release workflow publishes to Open VSX and the VS Code Marketplace, then creates tag `vx.y.z`. Do not push the tag or run `npm run publish:*` yourself. If only one store succeeded, re-run the workflow
 
 ## What NOT to do
 
