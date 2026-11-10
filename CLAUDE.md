@@ -93,6 +93,8 @@ To test in VS Code: press `F5` in VS Code to launch Extension Development Host.
 - Error messages are surfaced via `vscode.window.showErrorMessage` — never throw unhandled in command handlers
 - Conversion functions must throw a descriptive `Error` on invalid input (not return null/undefined)
 - `.env` key validation pattern: `/^[a-zA-Z_][a-zA-Z0-9_]*$/`
+- Add a CHANGELOG entry under **Unreleased** for user-visible changes
+- Commit messages follow Conventional Commits in English: `type(scope): subject`, imperative, lowercase, no trailing period. Pull requests are squash-merged with the PR title as the commit message
 
 ## Conversion Rules (important invariants)
 
@@ -137,10 +139,10 @@ npm test   # compiles + runs node out/converter.test.js
 
 ## Release Process
 
-1. Bump `version` in `package.json`
-2. Update `CHANGELOG.md`
-3. `npm run package` — verify the `.vsix`
-4. `npm run publish:vscode` + `npm run publish:ovsx`
+1. Move the **Unreleased** notes in `CHANGELOG.md` under the new version
+2. Bump with `npm version <x.y.z> --no-git-tag-version` and update **Current version** above
+3. Commit as `chore(release): x.y.z`, then wait for CI on `main`
+4. Push tag `vx.y.z`: the Release workflow publishes to Open VSX and the VS Code Marketplace. Do not also run `npm run publish:*`
 
 ## What NOT to do
 
