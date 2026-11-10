@@ -2,7 +2,7 @@
   "name": "envify",
   "displayName": "Envify",
   "description": "Convert .env to JSON, YAML, shell, docker-compose and Kubernetes — plus .env syntax highlighting, linting, ${VAR} autocomplete, .env file comparison, .env.example sync and formatting.",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "publisher": "pawaretdev",
   "engines": {
     "vscode": "^1.80.0"
