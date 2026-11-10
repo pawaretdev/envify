@@ -104,17 +104,19 @@ To test in VS Code: press `F5` in VS Code to launch Extension Development Host.
 - Double-quoted values: resolve escape sequences (`\n`, `\r`, `\t`, `\"`, `\\`)
 - Single-quoted values: literal (no escape processing, never expanded)
 - Unquoted values: an inline comment starts at a `#` preceded by whitespace (`COLOR=#ff0000` is a value, `KEY=x # c` is `x`)
-- Unclosed quote: the single line is taken literally (quote char included) and reported by `lintEnv`
+- Unclosed quote: the single line is taken literally (quote char included) and reported by `lintEnv`. The same literal reading applies when text other than a comment follows the closing quote, so no text is ever dropped; `lintEnv` reports it only if the quote did not close on its own line
 - Later duplicates win. Invalid lines are skipped by `parseEnv` and reported by `lintEnv`
 - Variable expansion is opt-in (`expandVariables`): `${VAR}`, `$VAR`, `${VAR:-d}`, `${VAR-d}`, `\$`; only keys in the same file, cycles resolve to `""`
 
 **`.env` → JSON:**
 - `inferTypes` only applies to unquoted values; leading-zero numbers and unsafe integers stay strings
-- `nestedSeparator` splits keys into nested objects; keys with an empty segment stay flat
+- `nestedSeparator` splits keys into nested objects; keys with an empty or `__proto__` segment stay flat; a key used as both a value and an object throws
+- Content with invalid lines but no entries throws instead of producing `{}`
 
 **JSON → `.env`:**
 - Nested objects are stringified with single-quoted `'...'` wrapper, or double-quoted with escaping if the JSON contains `'`; with `nestedSeparator` set they are flattened instead (arrays are always stringified)
 - Values containing whitespace, `#`, `"`, `'`, `\`, newline, leading/trailing whitespace, or empty string → double-quoted with escaping (`quoteStyle: 'always'` quotes everything)
+- In `auto` style, a value with a bare `$NAME` and no `${`, `'` or newline → single-quoted so tools that expand variables keep it literal
 - Invalid key (including flattened keys) → throw with descriptive message
 
 **`.env` formatting (`formatEnv`):**
@@ -123,11 +125,11 @@ To test in VS Code: press `F5` in VS Code to launch Extension Development Host.
 - Ensure single trailing newline
 - Must be idempotent
 
-**`.env.example` (`envToExample`):** same layout as `formatEnv`, values replaced by the placeholder.
+**`.env.example` (`envToExample`):** same layout as `formatEnv`, values replaced by the placeholder, invalid lines dropped because they may hold a secret.
 
 **Comparing two env files:** `diffEnv` compares parsed values (after optional expansion) and reports `onlyLeft` / `onlyRight` / `changed` / `same`. `normalizeEnv` prints one `KEY=value` line per key, sorted, re-quoted with `formatEnvValue`, so order, comments, `export` and quoting style never show up as differences. Key lookups use own-property checks (`hasKey`) so names like `constructor` work.
 
-**Other formats:** YAML scalars are quoted whenever a plain scalar could be misread (booleans, numbers, `: `, `#`, empty). ConfigMap values are always quoted. Secret values are base64.
+**Other formats:** YAML scalars are quoted whenever a plain scalar could be misread (booleans, numbers, `: `, `#`, empty). docker-compose output doubles `$` in single-quoted values. ConfigMap values are always quoted. Secret values are base64.
 
 ## Testing
 

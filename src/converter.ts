@@ -68,9 +68,6 @@ export interface EnvToJsonOptions extends ParseEnvOptions {
   sortKeys?: boolean;
 }
 
-/** @deprecated Use EnvToJsonOptions */
-export type ConvertOptions = EnvToJsonOptions;
-
 export interface JsonToEnvOptions {
   /** `auto` quotes only when needed, `always` double-quotes every value */
   quoteStyle?: 'auto' | 'always';
@@ -156,7 +153,7 @@ export const KEY_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 const ENTRY_PATTERN = /^(\s*)(export\s+)?([a-zA-Z_][a-zA-Z0-9_]*)(\s*=\s*)(.*)$/;
 
-const REFERENCE_PATTERN = /\\\$|\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?:(:?-)([^}]*))?\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+const REFERENCE_PATTERN = /\\\$|\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?:(:?-)((?:\$\{[^}]*\}|[^}])*))?\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -259,19 +256,26 @@ export function parseEnvDocument(content: string): EnvDocument {
 
     if (first === '"' || first === "'") {
       let endLine = i;
-      let body = rest;
-      let closeIdx = findClosingQuote(body, first, 1);
+      let closeIdx = findClosingQuote(rest, first, 1);
+      let offset = rest.length;
 
+      // Search each new line on its own: rescanning the growing value is quadratic in big files.
       while (closeIdx < 0 && endLine + 1 < src.length) {
         endLine++;
-        body += '\n' + src[endLine];
-        closeIdx = findClosingQuote(body, first, 1);
+        const idx = findClosingQuote(src[endLine], first, 0);
+        if (idx >= 0) {
+          closeIdx = offset + 1 + idx;
+        }
+        offset += 1 + src[endLine].length;
       }
 
-      if (closeIdx >= 0) {
+      const closedOnFirstLine = closeIdx >= 0 && endLine === i;
+      const body = closeIdx >= 0 ? [rest, ...src.slice(i + 1, endLine + 1)].join('\n') : rest;
+      const afterTrim = closeIdx >= 0 ? body.slice(closeIdx + 1).trim() : '';
+
+      if (closeIdx >= 0 && (afterTrim === '' || afterTrim.startsWith('#'))) {
         const rawValue = body.slice(0, closeIdx + 1);
         const inner = body.slice(1, closeIdx);
-        const afterTrim = body.slice(closeIdx + 1).trim();
         lines.push({
           type: 'entry',
           line: i,
@@ -292,7 +296,7 @@ export function parseEnvDocument(content: string): EnvDocument {
         continue;
       }
 
-      // Unclosed quote: fall back to treating this single line as an unquoted value.
+      // No usable closing quote: keep this single line as written so no text is lost.
       const { value, comment } = splitInlineComment(rest, spaceBefore);
       lines.push({
         type: 'entry',
@@ -309,7 +313,7 @@ export function parseEnvDocument(content: string): EnvDocument {
         keyEnd,
         valueStart,
         valueEnd: valueStart + value.length,
-        unclosedQuote: true,
+        unclosedQuote: !closedOnFirstLine,
       });
       i++;
       continue;
@@ -455,11 +459,8 @@ export function inferType(value: string): string | number | boolean | null {
   if (value === 'null') {
     return null;
   }
-  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(value)) {
-    const n = Number(value);
-    if (value.includes('.') || Number.isSafeInteger(n)) {
-      return n;
-    }
+  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(value) && String(Number(value)) === value) {
+    return Number(value);
   }
   return value;
 }
@@ -471,15 +472,24 @@ function isPlainObject(value: unknown): value is JsonObject {
 }
 
 function setNested(target: JsonObject, path: string[], value: unknown): void {
+  const conflict = (name: string): Error =>
+    new Error(`Key "${name}" is used both as a value and as a nested object. Rename one of the keys or turn off nested keys.`);
+
   let current = target;
   for (let i = 0; i < path.length - 1; i++) {
     const part = path[i];
-    if (!isPlainObject(current[part])) {
+    if (!hasKey(current, part)) {
       current[part] = {};
+    } else if (!isPlainObject(current[part])) {
+      throw conflict(path.slice(0, i + 1).join('.'));
     }
     current = current[part] as JsonObject;
   }
-  current[path[path.length - 1]] = value;
+  const last = path[path.length - 1];
+  if (hasKey(current, last) && isPlainObject(current[last])) {
+    throw conflict(path.join('.'));
+  }
+  current[last] = value;
 }
 
 function sortObjectKeys(value: unknown): unknown {
@@ -501,20 +511,19 @@ export function envToObject(content: string, options: EnvToJsonOptions = {}): Js
   const doc = parseEnvDocument(content);
   const resolve = expandVariables ? createResolver(doc) : undefined;
   const result: JsonObject = {};
+  const entries = envEntries(doc);
 
-  for (const entry of envEntries(doc)) {
+  if (entries.length === 0 && doc.lines.some((l) => l.type === 'invalid')) {
+    throw new Error('No KEY=value lines found. This does not look like a .env file.');
+  }
+
+  for (const entry of entries) {
     const key = entry.key as string;
     const stringValue = resolve ? (resolve(key) as string) : (entry.value as string);
     const value: unknown = inferTypes && entry.quote === null ? inferType(stringValue) : stringValue;
-
-    if (nestedSeparator) {
-      const path = key.split(nestedSeparator);
-      if (path.length > 1 && path.every((p) => p !== '')) {
-        setNested(result, path, value);
-        continue;
-      }
-    }
-    result[key] = value;
+    const path = nestedSeparator ? key.split(nestedSeparator) : [key];
+    // `__proto__` as a path segment would write to Object.prototype of the whole extension host.
+    setNested(result, path.every((p) => p !== '' && p !== '__proto__') ? path : [key], value);
   }
 
   return (sortKeys ? sortObjectKeys(result) : result) as JsonObject;
@@ -552,13 +561,12 @@ export function formatEnvValue(value: unknown, quoteStyle: 'auto' | 'always' = '
   }
 
   const str = String(value);
-  const needsQuotes =
-    quoteStyle === 'always' ||
-    str === '' ||
-    str !== str.trim() ||
-    /[\s#"'\\]/.test(str) ||
-    str.includes('\n') ||
-    str.includes('\r');
+  // Tools that expand variables would eat `$word` in `pa$word`. `${NAME}` is left as an intended reference.
+  if (quoteStyle === 'auto' && /\$[A-Za-z_]/.test(str) && !/\$\{|['\n\r]/.test(str)) {
+    return `'${str}'`;
+  }
+
+  const needsQuotes = quoteStyle === 'always' || str === '' || /[\s#"'\\]/.test(str);
 
   return needsQuotes ? `"${escapeDoubleQuoted(str)}"` : str;
 }
@@ -677,7 +685,8 @@ export function formatEnv(content: string): string {
 export function envToExample(content: string, options: EnvToExampleOptions = {}): string {
   const { placeholder = '' } = options;
   const doc = parseEnvDocument(content);
-  return serializeDocument(doc, () => placeholder);
+  // Invalid lines may hold a secret (`MY-KEY=hunter2`), and this file gets committed.
+  return serializeDocument({ lines: doc.lines.filter((l) => l.type !== 'invalid') }, () => placeholder);
 }
 
 // ---------------------------------------------------------------------------
@@ -685,7 +694,7 @@ export function envToExample(content: string, options: EnvToExampleOptions = {})
 // ---------------------------------------------------------------------------
 
 /** Own-property check, so keys like `constructor` are not found on the prototype. */
-function hasKey(vars: Record<string, string>, key: string): boolean {
+function hasKey(vars: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(vars, key);
 }
 
@@ -910,7 +919,6 @@ export function envToShell(content: string, options: ParseEnvOptions = {}): stri
 }
 
 const YAML_RESERVED = /^(true|false|yes|no|on|off|null|y|n|~)$/i;
-const YAML_NUMBER = /^[-+]?(\d[\d_]*(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
 const YAML_PLAIN = /^[A-Za-z0-9_][A-Za-z0-9_.\/@+:-]*$/;
 
 /** Render a string as a YAML scalar, quoting whenever a plain scalar could be misread. */
@@ -919,8 +927,8 @@ export function yamlScalar(value: string, alwaysQuote = false): string {
     !alwaysQuote &&
     YAML_PLAIN.test(value) &&
     !YAML_RESERVED.test(value) &&
-    !YAML_NUMBER.test(value) &&
-    !/^0[xob]/i.test(value) &&
+    // A leading digit may read as a number, date or base-60 time.
+    !/^\d/.test(value) &&
     !value.includes(': ') &&
     !value.endsWith(':');
   return plainSafe ? value : JSON.stringify(value);
@@ -946,6 +954,13 @@ export function envToYaml(content: string, options: ParseEnvOptions = {}): strin
  */
 export function envToDockerCompose(content: string, options: ParseEnvOptions = {}): string {
   const vars = parseEnv(content, options);
+  // Compose interpolates `$` in its own file, so literal (single-quoted) values must escape it.
+  const lastEntries = new Map(envEntries(parseEnvDocument(content)).map((e) => [e.key as string, e]));
+  for (const [key, entry] of lastEntries) {
+    if (entry.quote === "'") {
+      vars[key] = (entry.value as string).replace(/\$/g, '$$$$');
+    }
+  }
   const body = yamlMap(vars, '  ');
   return `environment:\n${body ? body + '\n' : '  {}\n'}`;
 }
@@ -975,18 +990,6 @@ export function envToKubernetesConfigMap(content: string, options: KubernetesOpt
   return `${kubernetesHeader('ConfigMap', name, namespace)}\ndata:\n${body ? body + '\n' : '  {}\n'}`;
 }
 
-function base64(value: string): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(value, 'utf8').toString('base64');
-  }
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  for (const b of bytes) {
-    binary += String.fromCharCode(b);
-  }
-  return btoa(binary);
-}
-
 /**
  * Kubernetes Secret (type Opaque) with base64-encoded `data`.
  */
@@ -994,7 +997,7 @@ export function envToKubernetesSecret(content: string, options: KubernetesOption
   const { name = 'app-secret', namespace } = options;
   const vars = parseEnv(content, options);
   const body = Object.entries(vars)
-    .map(([key, value]) => `  ${key}: ${base64(value)}`)
+    .map(([key, value]) => `  ${key}: ${Buffer.from(value, 'utf8').toString('base64')}`)
     .join('\n');
   return `${kubernetesHeader('Secret', name, namespace)}\ntype: Opaque\ndata:\n${body ? body + '\n' : '  {}\n'}`;
 }
