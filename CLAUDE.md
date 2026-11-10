@@ -4,7 +4,7 @@
 
 Envify is a VS Code extension for `.env` files: bidirectional `.env` ⇄ JSON conversion, export to YAML / shell / docker-compose / Kubernetes, `.env.example` generation and comparison, diffing two env files, and `dotenv` language support (highlighting, diagnostics, quick fixes, hover, `${` completion, snippets, formatter). Published on the VS Code Marketplace by `pawaretdev`.
 
-**Current version:** 1.5.0  
+**Current version:** 1.6.0  
 **Publisher:** pawaretdev  
 **Marketplace:** https://marketplace.visualstudio.com/items?itemName=pawaretdev.envify
 

@@ -14,6 +14,7 @@ The `.env` toolkit for VS Code — convert `.env` to JSON, YAML, shell, docker-c
 - **`.env` → `JSON`** and **`JSON` → `.env`** — in place, in a new tab, or straight to the clipboard
 - **`.env` → YAML, shell script, docker-compose `environment:`, Kubernetes ConfigMap / Secret** — pick a target from one command
 - **Selection support** — select a few lines to convert only those
+- **Paste detection** — paste a JSON object into a `.env` file and Envify offers to convert it
 - **Options** — infer JSON types, nested keys (`DB__HOST` ⇄ `{"DB":{"HOST":…}}`), variable expansion (`${VAR}`), key sorting, quoting style
 
 ### `.env.example`
@@ -196,6 +197,7 @@ PRIVATE_KEY=
 | `envify.diagnostics.compareWithExample` | `true` | Warn about keys missing from `.env.example` |
 | `envify.codeLens.enabled` | `true` | Show the "keys missing from `.env.example` \| Add" code lens |
 | `envify.showNotifications` | `true` | Show a toast after each conversion |
+| `envify.suggestConvertOnPaste` | `true` | Offer to convert a JSON object pasted into a `.env` file |
 
 ## Parsing rules
 

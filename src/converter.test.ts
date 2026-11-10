@@ -17,6 +17,7 @@ import {
   normalizeEnv,
   parseEnv,
   parseEnvDocument,
+  pastedJsonToEnv,
   referenceCompletionAt,
   yamlScalar,
 } from './converter';
@@ -283,6 +284,24 @@ test('sortKeys sorts recursively', () => {
 test('expandVariables resolves references in JSON output', () => {
   const result = JSON.parse(envToJson('HOST=db\nURL=postgres://${HOST}:5432', { expandVariables: true }));
   assert.deepStrictEqual(result, { HOST: 'db', URL: 'postgres://db:5432' });
+});
+
+// --- pastedJsonToEnv ---
+
+section('pastedJsonToEnv');
+
+test('converts a pasted object, ignoring surrounding whitespace', () => {
+  assert.strictEqual(pastedJsonToEnv('\n  {"FOO":"bar","BAZ":"1"}\n'), 'FOO=bar\nBAZ=1');
+});
+
+test('passes options through', () => {
+  assert.strictEqual(pastedJsonToEnv('{"DB":{"HOST":"x"}}', { nestedSeparator: '__' }), 'DB__HOST=x');
+});
+
+test('ignores anything that would not convert', () => {
+  for (const text of ['F', 'FOO=bar', '{}', '[1,2]', '"text"', '12', '{"FOO":', '{"bad-key":"x"}']) {
+    assert.strictEqual(pastedJsonToEnv(text), undefined, text);
+  }
 });
 
 // --- jsonToEnv ---

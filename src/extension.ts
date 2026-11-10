@@ -15,6 +15,7 @@ import {
   lintEnv,
   normalizeEnv,
   parseEnvDocument,
+  pastedJsonToEnv,
   referenceCompletionAt,
   EnvIssue,
   EnvOutputFormat,
@@ -42,6 +43,7 @@ interface EnvifyConfig {
   compareWithExample: boolean;
   codeLensEnabled: boolean;
   showNotifications: boolean;
+  suggestConvertOnPaste: boolean;
 }
 
 function getConfig(scope?: vscode.ConfigurationScope): EnvifyConfig {
@@ -68,6 +70,7 @@ function getConfig(scope?: vscode.ConfigurationScope): EnvifyConfig {
     compareWithExample: cfg.get<boolean>('diagnostics.compareWithExample', true),
     codeLensEnabled: cfg.get<boolean>('codeLens.enabled', true),
     showNotifications: cfg.get<boolean>('showNotifications', true),
+    suggestConvertOnPaste: cfg.get<boolean>('suggestConvertOnPaste', true),
   };
 }
 
@@ -169,6 +172,9 @@ function skippedLinesMessage(content: string): string {
 // Conversion commands
 // ---------------------------------------------------------------------------
 
+/** True during our own in-place edit, so .env → JSON output is not mistaken for pasted JSON. */
+let convertingInPlace = false;
+
 async function convertInPlace(direction: 'envToJson' | 'jsonToEnv'): Promise<void> {
   const editor = requireEditor();
   if (!editor) {
@@ -183,7 +189,12 @@ async function convertInPlace(direction: 'envToJson' | 'jsonToEnv'): Promise<voi
       ? envToJson(content, config.jsonOptions)
       : jsonToEnv(content, config.envOptions);
 
-    await editor.edit((edit) => edit.replace(range, output));
+    convertingInPlace = true;
+    try {
+      await editor.edit((edit) => edit.replace(range, output));
+    } finally {
+      convertingInPlace = false;
+    }
 
     if (!hasSelection) {
       await vscode.languages.setTextDocumentLanguage(editor.document, isEnvToJson ? 'json' : DOTENV_LANGUAGE);
@@ -241,6 +252,51 @@ async function copyAs(direction: 'envToJson' | 'jsonToEnv'): Promise<void> {
     notify(direction === 'envToJson' ? 'Copied as JSON' : 'Copied as .env');
   } catch (err) {
     fail(err);
+  }
+}
+
+/** Offers to convert a JSON object that was just pasted on its own lines of a .env file. */
+async function suggestConvertPastedJson(e: vscode.TextDocumentChangeEvent): Promise<void> {
+  const doc = e.document;
+  // e.reason is only set for undo/redo: undoing a conversion must not ask again.
+  if (convertingInPlace || e.reason || e.contentChanges.length !== 1 || doc !== vscode.window.activeTextEditor?.document) {
+    return;
+  }
+  const config = getConfig(doc);
+  if (!config.suggestConvertOnPaste || doc.languageId === 'json' || !isEnvDocument(doc)) {
+    return;
+  }
+  const change = e.contentChanges[0];
+  const output = pastedJsonToEnv(change.text, config.envOptions);
+  if (output === undefined) {
+    return;
+  }
+
+  // Replace only the JSON itself: a trailing newline must survive or the next line would join the output.
+  const json = change.text.trim();
+  const start = change.rangeOffset + change.text.indexOf(json);
+  const range = new vscode.Range(doc.positionAt(start), doc.positionAt(start + json.length));
+  // `KEY=` + paste is a JSON value, not a file of settings.
+  const before = doc.lineAt(range.start.line).text.slice(0, range.start.character);
+  const after = doc.lineAt(range.end.line).text.slice(range.end.character);
+  if (before.trim() || after.trim()) {
+    return;
+  }
+
+  const convert = 'Convert';
+  const choice = await vscode.window.showInformationMessage('Envify: Pasted JSON detected. Convert it to .env format?', convert);
+  if (choice !== convert) {
+    return;
+  }
+  // The notification can stay open while the user keeps editing.
+  if (doc.isClosed || doc.getText(range) !== json) {
+    vscode.window.showWarningMessage('Envify: The pasted JSON has changed. Use Convert JSON to .env on a selection instead.');
+    return;
+  }
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(doc.uri, range, output);
+  if (await vscode.workspace.applyEdit(edit)) {
+    notify('Converted JSON → .env');
   }
 }
 
@@ -1000,6 +1056,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeTextDocument((e) => {
       diagnostics.schedule(e.document);
       normalized.sourceChanged(e.document);
+      void suggestConvertPastedJson(e);
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
     vscode.workspace.onDidSaveTextDocument((doc) => {

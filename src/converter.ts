@@ -605,6 +605,15 @@ export function jsonToEnv(content: string, options: JsonToEnvOptions = {}): stri
   return lines.join('\n');
 }
 
+/** `.env` text for pasted text that is a convertible, non-empty JSON object; otherwise undefined. */
+export function pastedJsonToEnv(text: string, options: JsonToEnvOptions = {}): string | undefined {
+  try {
+    return jsonToEnv(text, options) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Document serialisation: formatEnv / envToExample
 // ---------------------------------------------------------------------------

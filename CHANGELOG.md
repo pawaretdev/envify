@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+
+### Paste JSON into a .env file
+- Paste a JSON object on its own lines in a `.env` file and Envify offers to convert it to `.env` format. Only the pasted text is converted, and Undo restores it
+- No prompt when JSON is pasted as a value (`CONFIG={...}`) or when it could not be converted (arrays, empty objects, invalid key names)
+- Turn it off with `envify.suggestConvertOnPaste`
+
 ## 1.5.0
 
 ### Compare .env files
